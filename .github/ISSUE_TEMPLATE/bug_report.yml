@@ -15,6 +15,16 @@ body:
       placeholder: DSM 7.2.2, DS920+
     validations:
       required: true
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Hardware
+      options:
+        - Original Synology NAS
+        - Arc Loader
+        - Other loader or virtual machine
+    validations:
+      required: true
   - type: textarea
     id: problem
     attributes:

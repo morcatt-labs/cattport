@@ -1,6 +1,6 @@
 # Beta testing
 
-Thanks for trying Cattport. A short report is useful even if everything works. Please include your NAS model and DSM version.
+Thanks for trying Cattport. A short report is useful even if everything works. Please include your NAS model, DSM version and whether it's an original Synology NAS or Arc Loader.
 
 ## Before you start
 

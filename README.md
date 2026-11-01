@@ -6,7 +6,7 @@ Put your Docker services and favorite links in the Synology DSM menu, next to yo
 
 Cattport only adds shortcuts. It doesn't change Docker, your containers or your services, and it runs nothing in the background.
 
-> **Beta.** Tested on DSM 7.4 so far. Reports from other DSM versions and NAS models are especially welcome.
+> **Beta.** Tested only on DSM 7.4.1 so far, so other versions and models may not work yet. If something goes wrong, uninstall Cattport from Package Center. [Testing checklist](docs/beta-testing.md) · [Report a problem](https://github.com/morcatt-labs/cattport/issues/new/choose)
 
 <table>
   <tr>
