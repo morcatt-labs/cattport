@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/banner.png" alt="Cattport: your Docker services and links, in the Synology DSM menu"></p>
+
 # Cattport
 
 Put your Docker services and favorite links in the Synology DSM menu, next to your other apps.
@@ -5,6 +7,17 @@ Put your Docker services and favorite links in the Synology DSM menu, next to yo
 Cattport only adds shortcuts. It doesn't change Docker, your containers or your services, and it runs nothing in the background.
 
 > **Beta.** Tested on DSM 7.4 so far. Reports from other DSM versions and NAS models are especially welcome.
+
+<table>
+  <tr>
+    <td><img src="docs/assets/apps-dark.png" alt="Apps in the dark theme"></td>
+    <td><img src="docs/assets/apps-light.png" alt="Apps in the light theme"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/editor.png" alt="Editing an app"></td>
+    <td><img src="docs/assets/diagnostics.png" alt="Diagnostics"></td>
+  </tr>
+</table>
 
 ## Features
 
@@ -48,3 +61,5 @@ The package is written to `dist/`. `dev_server.py` previews the interface locall
 ## License
 
 © 2026 Morcatt Labs. The code is licensed under the GNU GPL version 3, see [LICENSE](LICENSE). The Cattport name and logo are not covered by that license.
+
+Synology and DSM are trademarks of Synology Inc. Docker is a trademark of Docker, Inc. Other product names and logos shown in the screenshots belong to their owners. Cattport is an independent project and isn't affiliated with or endorsed by any of them.

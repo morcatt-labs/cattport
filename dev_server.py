@@ -75,6 +75,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if DOCKER != "running":
                     return self.send_json({"success": False, "error": {"code": 102}})
                 data = {"containers": CONTAINERS} if method == "list" else {"details": {}, "profile": {}}
+            elif api == "SYNO.Core.System":
+                data = {"firmware_ver": "DSM 7.4.1-90080"}
             elif api == "SYNO.FileStation.Search":
                 data = {"taskid": "t1"} if method == "start" else {"finished": True, "files": [{"name": "found-logo.png", "path": "/docker/icons/found-logo.png", "isdir": False}]}
             elif method == "list_share":
