@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0 beta 2
+
+- Clearer wording while saving: "Updating…" and "DSM updated" replace "Publishing"
+
 ## 1.0.0 beta 1
 
 First beta.
