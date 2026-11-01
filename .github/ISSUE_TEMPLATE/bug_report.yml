@@ -1,0 +1,35 @@
+name: Report a problem
+description: Something doesn't work as expected
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Cattport version
+      description: Shown in Cattport → About
+    validations:
+      required: true
+  - type: input
+    id: dsm
+    attributes:
+      label: DSM version and NAS model
+      placeholder: DSM 7.2.2, DS920+
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics report
+      description: In Cattport → Diagnostics, press Copy report and paste it here.
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Please remove private addresses first.

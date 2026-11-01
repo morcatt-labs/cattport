@@ -1,0 +1,6 @@
+#!/bin/sh
+# DSM keeps var/ after an uninstall, so the data goes only when the administrator asked for that.
+if [ "$pkgwizard_remove_data" = "true" ] && [ -n "$SYNOPKG_PKGVAR" ]; then
+  rm -rf "${SYNOPKG_PKGVAR:?}/"* "${SYNOPKG_PKGVAR:?}/".[!.]*
+fi
+exit 0
