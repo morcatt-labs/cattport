@@ -1,12 +1,33 @@
 <p align="center"><img src="docs/assets/banner.png" alt="Cattport: your Docker services and links, in the Synology DSM menu"></p>
 
-# Cattport
+<h1 align="center">Cattport</h1>
 
-Put your Docker services and favorite links in the Synology DSM menu, next to your other apps.
+<p align="center"><strong>All your Docker services and links, right in the Synology DSM menu.</strong><br>Add them in a few clicks, choose who sees them, and open everything from one place.</p>
 
-Cattport only adds shortcuts. It doesn't change Docker, your containers or your services, and it runs nothing in the background.
+<p align="center">
+  <a href="https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.2/Cattport-1.0.0-0018.spk"><img src="https://img.shields.io/badge/Download-Cattport_beta_2-1F74F5?style=for-the-badge" alt="Download Cattport beta 2"></a>
+</p>
 
-> **Beta.** Tested only on DSM 7.4.1 so far, so other versions and models may not work yet. If something goes wrong, uninstall Cattport from Package Center. [Testing checklist](docs/beta-testing.md) · [Report a problem](https://github.com/morcatt-labs/cattport/issues/new/choose)
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="docs/beta-testing.md">Testing checklist</a> ·
+  <a href="https://github.com/morcatt-labs/cattport/issues/new/choose">Report a problem</a>
+</p>
+
+> [!NOTE]
+> **Beta.** Tested only on DSM 7.4.1 so far, so other versions and models may not work yet. If something goes wrong, uninstall Cattport from Package Center.
+
+## Install
+
+Takes about a minute. You need an administrator account.
+
+1. **Download** [`Cattport-1.0.0-0018.spk`](https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.2/Cattport-1.0.0-0018.spk).
+2. In DSM, open **Package Center → Manual Install**, choose the file and finish the install.
+3. Open **Cattport** from the main menu, add your apps and press **Save to DSM**.
+
+If DSM refuses the file, go to **Package Center → Settings** and allow packages from any publisher.
+
+## See it
 
 <table>
   <tr>
@@ -19,20 +40,15 @@ Cattport only adds shortcuts. It doesn't change Docker, your containers or your 
   </tr>
 </table>
 
-## Features
+## What it does
 
-- Add running Docker services in a few clicks, or add any link
-- Icons from the container, your computer, File Station or an image address, plus optional online search
-- Separate local and domain addresses, so a tile also works behind a reverse proxy
-- Choose who sees each tile, or hide it from the menu
-- Light and dark themes, and every language DSM supports, plus Romanian
-- Backup and restore, diagnostics and built-in help
-
-## Install
-
-1. Download the latest `.spk` from [Releases](https://github.com/morcatt-labs/cattport/releases).
-2. In DSM, open **Package Center → Manual Install** and choose the file. If DSM refuses it, set the trust level in **Package Center → Settings** to allow any publisher.
-3. Open **Cattport** from the main menu.
+- **Adds Docker services in a few clicks,** or any link you want
+- **Finds icons for you** from the container or online, or use your own from your computer or File Station
+- **Works locally and behind a reverse proxy,** with a separate local and domain address
+- **Lets you choose who sees each app,** or hide it from the menu
+- **Stays out of the way:** it runs nothing in the background and doesn't change Docker or your services
+- **Speaks your language:** every language DSM supports, plus Romanian, in light and dark themes
+- **Has you covered** with backup and restore, diagnostics and built-in help
 
 ## How saving works
 
