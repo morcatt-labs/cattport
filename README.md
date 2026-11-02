@@ -27,6 +27,10 @@ Takes about a minute. You need an administrator account.
 
 If DSM refuses the file, go to **Package Center → Settings** and allow packages from any publisher.
 
+## Your apps, right in the DSM menu
+
+<p align="center"><img src="docs/assets/dsm-menu.png" alt="The DSM main menu with qBittorrent, Radarr, Seerr and Sonarr added by Cattport"></p>
+
 ## See it
 
 <table>
@@ -78,4 +82,4 @@ The package is written to `dist/`. `dev_server.py` previews the interface locall
 
 © 2026 Morcatt Labs. The code is licensed under the GNU GPL version 3, see [LICENSE](LICENSE). The Cattport name and logo are not covered by that license.
 
-Synology and DSM are trademarks of Synology Inc. Docker is a trademark of Docker, Inc. Other product names and logos shown in the screenshots belong to their owners. Cattport is an independent project and isn't affiliated with or endorsed by any of them.
+Synology and DSM are trademarks of Synology Inc. Docker is a trademark of Docker, Inc. Other product names and logos shown in the images belong to their owners. Cattport is an independent project and isn't affiliated with or endorsed by any of them.
