@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0 beta 3
+
+- Icon suggestions appear much faster: online and Docker searches now run at the same time
+- Fixed a message asking to reload DSM that could stay after an update, which also stopped Save to DSM from restarting Cattport
+- The icon search message moved to the icon panel; the pencil pulses while searching
+
 ## 1.0.0 beta 2
 
 - Clearer wording while saving: "Updating…" and "DSM updated" replace "Publishing"

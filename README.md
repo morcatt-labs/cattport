@@ -5,7 +5,7 @@
 <p align="center"><strong>All your Docker services and links, right in the Synology DSM menu.</strong><br>Add them in a few clicks, choose who sees them, and open everything from one place.</p>
 
 <p align="center">
-  <a href="https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.2/Cattport-1.0.0-0018.spk"><img src="https://img.shields.io/badge/Download-Cattport_beta_2-1F74F5?style=for-the-badge" alt="Download Cattport beta 2"></a>
+  <a href="https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.3/Cattport-1.0.0-0020.spk"><img src="https://img.shields.io/badge/Download-Cattport_beta_3-1F74F5?style=for-the-badge" alt="Download Cattport beta 3"></a>
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@
 
 Takes about a minute. You need an administrator account.
 
-1. **Download** [`Cattport-1.0.0-0018.spk`](https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.2/Cattport-1.0.0-0018.spk).
+1. **Download** [`Cattport-1.0.0-0020.spk`](https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.3/Cattport-1.0.0-0020.spk).
 2. In DSM, open **Package Center → Manual Install**, choose the file and finish the install.
 3. Open **Cattport** from the main menu, add your apps and press **Save to DSM**.
 

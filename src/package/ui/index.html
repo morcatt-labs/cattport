@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Cattport</title>
 <link rel="icon" href="images/cattport_32.png">
-<link rel="stylesheet" href="page.css">
+<link rel="stylesheet" href="page.css?v=__VERSION__">
 </head>
 <body>
 <div class="shell" id="shell" hidden>
@@ -152,7 +152,6 @@
     </div>
     <p class="warn" id="domain-warn" data-i18n="edit.domainNeeded" hidden></p>
     <p class="warn" id="edit-warn" hidden></p>
-    <p class="hint" id="suggest-status" role="status"></p>
 
     <div class="panel options">
     <div class="line"><span data-i18n="edit.audience"></span>
@@ -177,6 +176,7 @@
 <dialog class="sheet" id="icon-sheet">
   <header class="sheet-head"><h2 class="grow" data-i18n="edit.changeIcon"></h2><button class="close" type="button" data-close data-i18n-label="common.close">×</button></header>
   <div class="icons" id="icon-suggestions" data-i18n-label="edit.icon" role="group"></div>
+  <p class="hint" id="suggest-status" role="status"></p>
   <div class="row wrap">
     <button class="btn soft grow" id="pick-pc" type="button" data-i18n="edit.fromComputer"></button>
     <button class="btn soft grow" id="pick-fs" type="button" data-i18n="edit.fromFiles"></button>
@@ -192,8 +192,8 @@
   <nav class="crumbs" id="fs-path" aria-label="Folder"></nav>
   <div class="gallery" id="fs-list"></div>
 </dialog>
-<script src="network.js"></script>
-<script src="text/en.js"></script>
-<script src="app.js"></script>
+<script src="network.js?v=__VERSION__"></script>
+<script src="text/en.js?v=__VERSION__"></script>
+<script src="app.js?v=__VERSION__"></script>
 </body>
 </html>

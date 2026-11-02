@@ -18,7 +18,7 @@ import cattport_core as core
 WORK = Path(tempfile.mkdtemp(prefix="cattport-dev-"))
 UI = WORK / "target" / "ui"
 shutil.copytree(ROOT / "src" / "package" / "ui", UI)
-for path in UI.glob("*.js"):
+for path in [*UI.glob("*.js"), *UI.glob("*.html")]:
     path.write_text(path.read_text(encoding="utf-8").replace("__VERSION__", build_spk.VERSION), encoding="utf-8")
 (UI / "images").mkdir()
 for size in build_spk.ICON_SIZES:

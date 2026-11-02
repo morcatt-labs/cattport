@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-VERSION = "1.0.0-0018"
+VERSION = "1.0.0-0020"
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
 ICON_SIZES = (16, 24, 32, 48, 64, 72, 256)

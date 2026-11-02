@@ -28,6 +28,8 @@ MAX_IMAGE_BYTES = 3 * 1024 * 1024
 MAX_HTML_BYTES = 512 * 1024
 MAX_APPS = 200
 FETCH_TIMEOUT = 6
+LOCAL_TIMEOUT = 2
+MAX_PAGE_ICONS = 3
 USER_AGENT = "Cattport (Synology DSM)"
 ICON_CDNS = (
     ("Dashboard Icons", "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/{slug}.png"),
@@ -492,7 +494,9 @@ def _open(url, limit):
             context.verify_mode = ssl.CERT_NONE
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
     opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), _HttpOnlyRedirect)
-    with opener.open(request, timeout=FETCH_TIMEOUT) as response:
+    # A service on this NAS answers quickly or not at all; a port that doesn't speak HTTPS would only hang.
+    timeout = LOCAL_TIMEOUT if _is_local_host(parsed.hostname) else FETCH_TIMEOUT
+    with opener.open(request, timeout=timeout) as response:
         body = response.read(limit + 1)
         if len(body) > limit:
             raise ApiError("image_too_large")
@@ -579,7 +583,7 @@ def _try_image(source, label, url):
 
 
 def _first_page_icon(page_url, label, source):
-    for url in page_icon_urls(page_url)[:6]:
+    for url in page_icon_urls(page_url)[:MAX_PAGE_ICONS]:
         result = _try_image(source, label, url)
         if result:
             return result

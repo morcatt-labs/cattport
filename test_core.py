@@ -4,11 +4,13 @@ import io
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -340,6 +342,16 @@ class FetchTest(unittest.TestCase):
         self.assertEqual(results[0]["source"], "docker")
         self.assertTrue(results[0]["dataUrl"].startswith("data:image/png;base64,"))
 
+    def test_a_silent_local_port_gives_up_quickly(self):
+        silent = socket.socket()
+        self.addCleanup(silent.close)
+        silent.bind(("127.0.0.1", 0))
+        silent.listen(8)
+        started = time.time()
+        results = core.docker_icons({"ports": [silent.getsockname()[1]], "labels": {}})["results"]
+        self.assertEqual(results, [])
+        self.assertLess(time.time() - started, 10)
+
     def test_content_type_is_not_trusted(self):
         with self.assertRaises(core.ApiError):
             core.fetch_image("http://127.0.0.1:%d/not-image" % self.port)
@@ -414,6 +426,10 @@ class PackageTest(unittest.TestCase):
             # DSM loads <package>/style.css across its whole interface.
             self.assertNotIn("ui/style.css", members)
             self.assertIn("ui/open.html", members)
+            # Without a version in the address, browsers keep old files after an upgrade.
+            page = inner.extractfile("ui/index.html").read().decode()
+            for name in ("app.js", "network.js", "text/en.js", "page.css"):
+                self.assertIn('%s?v=%s"' % (name, build_spk.VERSION), page)
             self.assertIn("ui/network.js", members)
             self.assertEqual(len([name for name in members if name.startswith("ui/text/")]), 22)
             for item in inner.getmembers():

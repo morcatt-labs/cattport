@@ -39,7 +39,7 @@
     const code = chosen === "auto" ? dsmLanguage() : chosen;
     if (TEXT[code] || !LANGUAGE_NAMES[code]) return Promise.resolve();
     return new Promise((resolve) => {
-      const script = el("script", { src: "text/" + code + ".js", onload: resolve, onerror: resolve });
+      const script = el("script", { src: "text/" + code + ".js?v=" + VERSION, onload: resolve, onerror: resolve });
       document.head.append(script);
     });
   }
@@ -135,7 +135,7 @@
   function findHost() {
     try {
       const found = window.top.labs && window.top.labs.morcatt && window.top.labs.morcatt.cattport;
-      if (found && found.version === VERSION && found.saveToDsm) return found;
+      if (found && found.saveToDsm) return found;
       if (found) showStatus(t("status.outdated"), reloadAction(), true);
     } catch (ignored) { /* opened on its own */ }
     return null;
@@ -410,15 +410,12 @@
   }
 
   async function firstDockerIcon(container) {
-    try {
-      const data = await api("docker_icons", { ports: container.webPorts, labels: iconLabels(container) });
-      if (data.results.length) return data.results[0].dataUrl;
-    } catch (ignored) { /* a Docker icon is optional */ }
-    try {
-      const data = await api("internet_icons", { name: friendlyName(container.name) });
-      if (data.results.length) return data.results[0].dataUrl;
-    } catch (ignored) { /* so is an online one */ }
-    return null;
+    const first = (data) => (data.results.length ? data.results[0].dataUrl : null);
+    const [docker, online] = await Promise.all([
+      api("docker_icons", { ports: container.webPorts, labels: iconLabels(container) }).then(first).catch(() => null),
+      api("internet_icons", { name: friendlyName(container.name) }).then(first).catch(() => null),
+    ]);
+    return docker || online;
   }
 
   // The fallback icon: the first letter on a colour derived from the name.
@@ -455,6 +452,7 @@
   function chooseIcon(dataUrl) {
     draft.icon = dataUrl;
     draft.iconChanged = true;
+    draft.autoIcon = false;
     draft.touched = true;
     setPreview(dataUrl);
   }
@@ -488,7 +486,7 @@
   }
 
   // The editor keeps a short row for a quick change; the pencil's panel has them all.
-  async function addSuggestions(results) {
+  async function addSuggestions(results, preferred) {
     const quick = $("suggestions");
     const all = $("icon-suggestions");
     const current = draft;
@@ -501,9 +499,11 @@
       all.append(suggestionButton(result, () => $("icon-sheet").close()));
       if (quick.children.length < QUICK_ICONS) quick.append(suggestionButton(result));
     }
-    if (!draft.icon && results.length) {
+    // A container's own icon wins over an online one, unless the icon was already chosen by hand.
+    if (results.length && draft === current && (!draft.icon || (preferred && draft.autoIcon))) {
       draft.icon = results[0].dataUrl;
       draft.iconChanged = true;
+      draft.autoIcon = !draft.key;
       setPreview(draft.icon);
     }
   }
@@ -523,28 +523,35 @@
     const status = $("suggest-status");
     if (!name) { status.textContent = ""; return; }
     status.textContent = t("edit.searching");
+    // Stays quiet in the editor: only the pencil shows that a search is running.
+    $("preview").classList.add("searching");
     if (!containers) { try { await loadContainers(); } catch (ignored) { /* no Docker: keep going */ } }
     if (run !== suggestRun) return;
     const match = draft.container || matchContainer(name);
     let found = 0;
-    if (match && (match.webPorts.length || Object.keys(iconLabels(match)).length)) {
+    let note = "";
+    // Both at once, so a slow container doesn't hold up the online results.
+    const fromDocker = (async () => {
+      if (!match || !(match.webPorts.length || Object.keys(iconLabels(match)).length)) return;
       try {
         const data = await api("docker_icons", { ports: match.webPorts, labels: iconLabels(match) });
         if (run !== suggestRun) return;
         found += data.results.length;
-        await addSuggestions(data.results);
+        await addSuggestions(data.results, true);
       } catch (ignored) { /* optional */ }
-    }
-    let note = "";
-    try {
-      const data = await api("internet_icons", { name: name, url: $("f-url").value.trim() });
-      if (run !== suggestRun) return;
-      found += data.results.length;
-      await addSuggestions(data.results);
-      if (data.disabled) note = t("edit.onlineOff");
-    } catch (ignored) {
-      note = t("edit.offline");
-    }
+    })();
+    const fromInternet = (async () => {
+      try {
+        const data = await api("internet_icons", { name: name, url: $("f-url").value.trim() });
+        if (run !== suggestRun) return;
+        found += data.results.length;
+        await addSuggestions(data.results);
+        if (data.disabled) note = t("edit.onlineOff");
+      } catch (ignored) {
+        note = t("edit.offline");
+      }
+    })();
+    await Promise.all([fromDocker, fromInternet]);
     if (run !== suggestRun) return;
     if (!draft.icon) {
       draft.icon = await markIcon(name);
@@ -552,6 +559,7 @@
       setPreview(draft.icon);
     }
     status.textContent = note || (found ? "" : t("edit.noIcons"));
+    $("preview").classList.remove("searching");
   }
 
   function scheduleSuggest() {
@@ -593,6 +601,7 @@
     $("icon-suggestions").replaceChildren();
     iconError("");
     $("suggest-status").textContent = "";
+    $("preview").classList.remove("searching");
     $("edit-warn").hidden = true;
     editError("");
     setAudience(app && app.allUsers ? "everyone" : "admins");
