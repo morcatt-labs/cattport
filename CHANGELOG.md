@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The arrow in the Language list now sits inside its box
+
 ## 1.0.0 beta 3
 
 - Icon suggestions appear much faster: online and Docker searches now run at the same time
