@@ -38,7 +38,7 @@ Thanks for trying Cattport. A short report is useful even if everything works. P
 - [ ] A user who isn't allowed gets "You don't have access" when opening the tile's link directly
 
 **Package source**
-- [ ] Package Center → Settings → Package Sources accepts `https://morcatt-labs.github.io/cattport/`
+- [ ] Package Center → Settings → Package Sources accepts `https://morcatt-labs.github.io/packages/`
 - [ ] Cattport appears under Community and installs from there
 - [ ] A newer version shows up as an update in Package Center
 

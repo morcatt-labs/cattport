@@ -28,13 +28,13 @@ Add the Morcatt Labs package source once, and DSM offers every new version of Ca
 1. In DSM, open **Package Center → Settings → Package Sources** and choose **Add**.
 2. Name it `Morcatt Labs` and enter this location:
    ```text
-   https://morcatt-labs.github.io/cattport/
+   https://morcatt-labs.github.io/packages/
    ```
-   If DSM doesn't accept it, use `https://morcatt-labs.github.io/cattport/index.json`.
+   If DSM doesn't accept it, use `https://morcatt-labs.github.io/packages/index.json`. This one source brings every Morcatt Labs app, and the [packages](https://github.com/morcatt-labs/packages) repository explains how it works. If you added the older `https://morcatt-labs.github.io/cattport/` address, it keeps working.
 3. Choose **OK**, then open **Community** in Package Center, find **Cattport** and choose **Install**.
 4. Open **Cattport** from the main menu, add your apps and press **Save to DSM**.
 
-DSM warns that Cattport isn't from Synology. That's expected for every package that doesn't come from Synology. Updates then appear in Package Center like any other.
+DSM warns that Cattport isn't from Synology. That's expected for every package that doesn't come from Synology. Updates then appear in Package Center like any other. DSM checks about once a day; the refresh button in Package Center checks right away.
 
 ### Manual install
 
@@ -95,12 +95,11 @@ Needs Python 3 and Pillow.
 
 ```bash
 python3 build_spk.py
-python3 build_feed.py
 python3 -m unittest test_core
 python3 dev_server.py
 ```
 
-The package is written to `dist/`, and the package source to `dist/feed/`. A GitHub Action publishes the source to the `gh-pages` branch after each release and once a day, with the download count from GitHub Releases. `dev_server.py` previews the interface locally, with DSM's answers simulated.
+The package is written to `dist/`. Each GitHub release with a `.spk` reaches Package Center through [morcatt-labs/packages](https://github.com/morcatt-labs/packages) within an hour. `dev_server.py` previews the interface locally, with DSM's answers simulated.
 
 ## License
 
