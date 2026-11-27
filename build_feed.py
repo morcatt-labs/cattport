@@ -6,9 +6,11 @@ Usage: python3 build_feed.py [path/to/Cattport-<version>.spk]   (defaults to the
 """
 import hashlib
 import json
+import os
 import shutil
 import sys
 import tarfile
+import urllib.request
 from pathlib import Path
 
 import build_spk
@@ -17,6 +19,7 @@ ROOT = Path(__file__).resolve().parent
 FEED = ROOT / "dist" / "feed"
 SITE = "https://morcatt-labs.github.io/cattport/"
 CHANGELOG = ROOT / "CHANGELOG.md"
+RELEASES_API = "https://api.github.com/repos/morcatt-labs/cattport/releases?per_page=100"
 
 
 def spk_info(path):
@@ -31,15 +34,38 @@ def spk_info(path):
 
 
 def latest_changes():
-    """The bullet points of the newest section in CHANGELOG.md, as DSM shows them under "What's new"."""
-    sections = CHANGELOG.read_text(encoding="utf-8").split("\n## ")[1:]
+    """The newest released section of CHANGELOG.md, numbered like SynoCommunity's: "1. First. <br/>2. Second."
+
+    Package Center can drop the <br/>; the numbers and the space before them still keep the points apart.
+    """
+    sections = [part for part in CHANGELOG.read_text(encoding="utf-8").split("\n## ")[1:] if not part.startswith("Unreleased")]
     if not sections:
         return ""
-    bullets = [line[2:].replace("**", "").strip() for line in sections[0].splitlines() if line.startswith("- ")]
-    return "<br>".join(bullets)
+    bullets = []
+    for line in sections[0].splitlines():
+        if line.startswith("- "):
+            text = line[2:].replace("**", "").strip()
+            bullets.append(text if text.endswith((".", "!", "?", ":")) else text + ".")
+    return " <br/>".join("%d. %s" % (number, text) for number, text in enumerate(bullets, 1))
 
 
-def entry(spk):
+def release_downloads():
+    """How often each .spk was downloaded from GitHub Releases, by file name. GITHUB_TOKEN is optional."""
+    request = urllib.request.Request(RELEASES_API, headers={"Accept": "application/vnd.github+json", "User-Agent": "cattport-feed"})
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        request.add_header("Authorization", "Bearer " + token)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        releases = json.load(response)
+    counts = {}
+    for release in releases:
+        for asset in release.get("assets", []):
+            if asset["name"].endswith(".spk"):
+                counts[asset["name"]] = counts.get(asset["name"], 0) + int(asset.get("download_count", 0))
+    return counts
+
+
+def entry(spk, downloads):
     info = spk_info(spk)
     data = spk.read_bytes()
     version = info["version"]
@@ -50,8 +76,9 @@ def entry(spk):
         "dname": info["displayname"],
         "desc": info["description"],
         "price": 0,
-        "download_count": 0,
-        "recent_download_count": 0,
+        # Every Cattport build ever downloaded from GitHub Releases, and this build alone.
+        "download_count": sum(downloads.values()),
+        "recent_download_count": downloads.get(spk.name, 0),
         # Served from the same site, so DSM never has to follow a redirect to download it.
         "link": SITE + "packages/" + spk.name,
         "size": len(data),
@@ -86,7 +113,9 @@ def entry(spk):
     }
 
 
-def build(spk):
+def build(spk, downloads=None):
+    # Asked before anything is removed, so a failed request never publishes a feed with zero downloads.
+    downloads = release_downloads() if downloads is None else downloads
     if FEED.exists():
         shutil.rmtree(FEED)
     for folder in ("images", "packages"):
@@ -97,7 +126,7 @@ def build(spk):
         shutil.copyfile(ROOT / "docs" / "assets" / name, FEED / "images" / name)
     shutil.copyfile(spk, FEED / "packages" / spk.name)
     # DSM 7 reads only "packages"; keyrings and signatures were removed in DSM 7.0.
-    body = json.dumps({"packages": [entry(spk)]}, ensure_ascii=False, indent=2) + "\n"
+    body = json.dumps({"packages": [entry(spk, downloads)]}, ensure_ascii=False, indent=2) + "\n"
     # DSM asks for the address it was given, with its details in the query: the site's root answers with the
     # catalog itself, and index.json is the same file for anyone who prefers a file name.
     for name in ("index.html", "index.json"):

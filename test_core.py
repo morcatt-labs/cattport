@@ -785,7 +785,8 @@ class PackageTest(unittest.TestCase):
     def test_package_source_lists_the_new_build(self):
         import build_feed
         spk = build_spk.build()
-        feed = build_feed.build(spk)
+        downloads = {"Cattport-1.0.0-0020.spk": 5, spk.name: 2}
+        feed = build_feed.build(spk, downloads)
         catalog = json.loads((feed / "index.json").read_text())
         self.assertEqual((feed / "index.html").read_text(), (feed / "index.json").read_text())
         self.assertEqual(list(catalog), ["packages"])
@@ -796,7 +797,32 @@ class PackageTest(unittest.TestCase):
         self.assertEqual((item["size"], item["md5"]), (len(data), __import__("hashlib").md5(data).hexdigest()))
         for url in item["thumbnail"] + item["snapshot"]:
             self.assertTrue((feed / url[len(build_feed.SITE):]).exists(), url)
-        self.assertTrue(item["changelog"] and "**" not in item["changelog"])
+        self.assertEqual((item["download_count"], item["recent_download_count"]), (7, 2))
+        self.assertTrue(item["changelog"].startswith("1. ") and "**" not in item["changelog"])
+
+    def test_changelog_points_stay_apart_in_package_center(self):
+        import build_feed
+        import re
+        text = build_feed.latest_changes()
+        points = text.split(" <br/>")
+        self.assertGreater(len(points), 1)
+        for number, point in enumerate(points, 1):
+            self.assertTrue(point.startswith("%d. " % number), point)
+            self.assertTrue(point.endswith((".", "!", "?", ":")), point)
+        # Even if DSM drops the tags, each point still ends before the next number.
+        flat = re.sub(r"<[^>]+>", "", text)
+        for number in range(2, len(points) + 1):
+            self.assertIn(". %d. " % number, flat)
+
+    def test_downloads_are_counted_per_file(self):
+        import build_feed
+        from unittest import mock
+        releases = [{"assets": [{"name": "Cattport-1.0.0-0021.spk", "download_count": 2}, {"name": "notes.txt", "download_count": 9}]},
+                    {"assets": [{"name": "Cattport-1.0.0-0020.spk", "download_count": 4}]}]
+        response = mock.MagicMock()
+        response.__enter__.return_value = io.BytesIO(json.dumps(releases).encode())
+        with mock.patch.object(build_feed.urllib.request, "urlopen", return_value=response):
+            self.assertEqual(build_feed.release_downloads(), {"Cattport-1.0.0-0021.spk": 2, "Cattport-1.0.0-0020.spk": 4})
 
     def test_icon_keeps_dsm_margin(self):
         box = build_spk.draw_icon(256).getbbox()

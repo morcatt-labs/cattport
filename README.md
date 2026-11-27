@@ -5,7 +5,7 @@
 <p align="center"><strong>All your Docker services and links, right in the Synology DSM menu.</strong><br>Add them in a few clicks, choose who sees them, and open everything from one place.</p>
 
 <p align="center">
-  <a href="https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.4/Cattport-1.0.0-0021.spk"><img src="https://img.shields.io/badge/Download-Cattport_beta_4-1F74F5?style=for-the-badge" alt="Download Cattport beta 4"></a>
+  <a href="https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.5/Cattport-1.0.0-0022.spk"><img src="https://img.shields.io/badge/Download-Cattport_beta_5-1F74F5?style=for-the-badge" alt="Download Cattport beta 5"></a>
 </p>
 
 <p align="center">
@@ -38,7 +38,7 @@ DSM warns that Cattport isn't from Synology. That's expected for every package t
 
 ### Manual install
 
-1. **Download** [`Cattport-1.0.0-0021.spk`](https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.4/Cattport-1.0.0-0021.spk).
+1. **Download** [`Cattport-1.0.0-0022.spk`](https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.5/Cattport-1.0.0-0022.spk).
 2. In DSM, open **Package Center → Manual Install**, choose the file and finish the install.
 3. Open **Cattport** from the main menu, add your apps and press **Save to DSM**.
 
@@ -100,7 +100,7 @@ python3 -m unittest test_core
 python3 dev_server.py
 ```
 
-The package is written to `dist/`, and the package source to `dist/feed/`, which is published to the `gh-pages` branch. `dev_server.py` previews the interface locally, with DSM's answers simulated.
+The package is written to `dist/`, and the package source to `dist/feed/`. A GitHub Action publishes the source to the `gh-pages` branch after each release and once a day, with the download count from GitHub Releases. `dev_server.py` previews the interface locally, with DSM's answers simulated.
 
 ## License
 

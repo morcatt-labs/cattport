@@ -1,0 +1,62 @@
+# Rebuilds the Package Center source on GitHub Pages: when a release is published and once a day,
+# so the download count stays current. The .spk is the released file itself, never a new build.
+name: Package source
+
+on:
+  release:
+    types: [published]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: package-source
+  cancel-in-progress: false
+
+jobs:
+  feed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Pillow
+        run: python -m pip install --quiet Pillow
+
+      - name: Download the newest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list --limit 1 --exclude-drafts --json tagName --jq '.[0].tagName')
+          mkdir -p dist
+          gh release download "$tag" --pattern '*.spk' --dir dist
+          echo "SPK=$(ls dist/*.spk | head -n 1)" >> "$GITHUB_ENV"
+
+      - name: Build the feed
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python build_feed.py "$SPK"
+
+      - name: Publish to gh-pages when something changed
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch --quiet --depth 1 "$remote" gh-pages && git show FETCH_HEAD:index.json > /tmp/live.json 2>/dev/null \
+             && cmp -s /tmp/live.json dist/feed/index.json; then
+            echo "The feed is already up to date."
+            exit 0
+          fi
+          cd dist/feed
+          git init --quiet -b gh-pages
+          git add -A
+          git -c user.name="Morcatt Labs" -c user.email="119733840+morcatt@users.noreply.github.com" \
+            commit --quiet -m "Package source: $(basename "$SPK" .spk)"
+          # One commit only: the branch holds the current feed, its history lives in main.
+          git push --quiet --force "$remote" gh-pages

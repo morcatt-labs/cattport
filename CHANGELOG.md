@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0 beta 5
+
+- Package Center shows how many times Cattport was downloaded, updated every day
+- "What's new" in Package Center lists each change on its own line
+
 ## 1.0.0 beta 4
 
 - **Chosen people:** show an app only to the users and groups you pick, or to everyone except some of them. Cattport sets the matching DSM Application Privileges when you save.
