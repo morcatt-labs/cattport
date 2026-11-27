@@ -21,6 +21,12 @@ Thanks for trying Cattport. A short report is useful even if everything works. P
 - [ ] Icons are suggested, and you can choose one from your computer and from File Station
 - [ ] The unsaved counter goes up, and nothing appears in the DSM menu yet
 
+**Beta 6**
+- [ ] Each app shows a green dot if its service responds and a red one if it doesn't
+- [ ] Dragging a tile changes the order, and after Save to DSM the DSM menu shows the same order
+- [ ] Select → pick apps → Who sees these, Hide and Show change all of them
+- [ ] After changing a container's port, Cattport offers the new address and Update fixes the tile
+
 **Save to DSM**
 - [ ] The window closes and comes back by itself
 - [ ] Apps are in the main menu, including in another browser

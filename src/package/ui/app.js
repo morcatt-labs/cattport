@@ -20,11 +20,18 @@
   let dockerError = null;
   let dockerSelected = new Set();
   let draft = null;
+  let target = null;
   let suggestRun = 0;
   let suggestTimer = null;
   let statusTimer = null;
   let diagnostics = [];
   let accounts = null;
+  let health = {};
+  let selecting = false;
+  let selected = new Set();
+  let dragKey = null;
+  let moves = [];
+  let bulkDraft = null;
 
   /* Text */
 
@@ -157,7 +164,7 @@
 
   function renderSaveBar() {
     const count = state.pending || 0;
-    $("save-bar").hidden = !count;
+    $("save-bar").hidden = !count || selecting;
     $("unsaved").textContent = t("apps.unsaved", { n: count });
   }
 
@@ -198,22 +205,247 @@
 
   function renderApps() {
     renderSaveBar();
+    renderBulkBar();
     const query = $("search").value.trim().toLowerCase();
     const apps = state.apps.filter((app) => app.name.toLowerCase().includes(query));
     const list = $("apps");
     list.replaceChildren();
     $("empty").hidden = state.apps.length > 0;
     $("no-results").hidden = !(state.apps.length && !apps.length);
+    $("select").hidden = !state.apps.length;
+    // Moving tiles only makes sense with the whole list in view.
+    const canMove = !selecting && !query && state.apps.length > 1;
     apps.forEach((app) => {
       const image = el("img", { alt: "" });
       iconFor(app, image);
       const noDomain = !app.hidden && !app.external && onDomain();
       const note = app.hidden ? t("apps.hidden") : noDomain ? t("apps.noDomain") : audienceNote(app);
-      const tile = el("button", { className: "tile" + (app.hidden ? " off" : ""), type: "button", onclick: () => openEditor(app) }, [
-        image, el("b", { textContent: app.name }), el("small", { textContent: note }),
-      ]);
-      list.append(el("li", {}, [tile]));
+      const known = Object.prototype.hasOwnProperty.call(health, app.key);
+      const dot = el("i", { className: "health" + (known ? (health[app.key] ? " up" : " down") : "") });
+      if (known) {
+        dot.setAttribute("role", "img");
+        dot.setAttribute("aria-label", t(health[app.key] ? "apps.up" : "apps.down"));
+        dot.title = t(health[app.key] ? "apps.up" : "apps.down");
+      }
+      const parts = [dot, image, el("b", { textContent: app.name }), el("small", { textContent: note })];
+      if (selecting) parts.unshift(el("span", { className: "mark" }));
+      const tile = el("button", { className: "tile" + (app.hidden ? " off" : ""), type: "button", onclick: () => (selecting ? toggleSelected(app.key) : openEditor(app)) }, parts);
+      if (selecting) tile.setAttribute("aria-pressed", String(selected.has(app.key)));
+      const item = el("li", {}, [tile]);
+      if (canMove) {
+        item.draggable = true;
+        tile.title = t("apps.moveHint");
+        wireDrag(item, app.key);
+        tile.addEventListener("keydown", (event) => {
+          if (!event.altKey || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+          event.preventDefault();
+          const index = state.apps.findIndex((other) => other.key === app.key);
+          const next = state.apps[index + (event.key === "ArrowLeft" ? -1 : 1)];
+          if (next) moveApp(app.key, next.key, event.key === "ArrowRight", true);
+        });
+      }
+      list.append(item);
     });
+  }
+
+  /* Order: drag a tile, or Alt + arrow keys. DSM's menu gets the same order at the next Save to DSM. */
+
+  function clearDropMarks() {
+    document.querySelectorAll(".drop-before, .drop-after").forEach((node) => node.classList.remove("drop-before", "drop-after"));
+  }
+
+  function wireDrag(item, key) {
+    item.addEventListener("dragstart", (event) => {
+      dragKey = key;
+      item.classList.add("dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", key);
+    });
+    item.addEventListener("dragend", () => { dragKey = null; item.classList.remove("dragging"); clearDropMarks(); });
+    item.addEventListener("dragover", (event) => {
+      if (!dragKey || dragKey === key) return;
+      event.preventDefault();
+      const box = item.getBoundingClientRect();
+      const after = event.clientX > box.left + box.width / 2;
+      clearDropMarks();
+      item.classList.add(after ? "drop-after" : "drop-before");
+    });
+    item.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const after = item.classList.contains("drop-after");
+      clearDropMarks();
+      if (dragKey && dragKey !== key) moveApp(dragKey, key, after);
+    });
+  }
+
+  async function moveApp(moving, beside, after, keepFocus) {
+    const keys = state.apps.map((app) => app.key).filter((key) => key !== moving);
+    keys.splice(keys.indexOf(beside) + (after ? 1 : 0), 0, moving);
+    const before = state.apps;
+    // Shown at once; the saved order follows.
+    state = Object.assign({}, state, { apps: keys.map((key) => before.find((app) => app.key === key)) });
+    renderApps();
+    if (keepFocus) focusTile(moving);
+    try {
+      state = await api("reorder", { keys: keys });
+      renderApps();
+      if (keepFocus) focusTile(moving);
+    } catch (error) {
+      state = Object.assign({}, state, { apps: before });
+      renderApps();
+      showStatus(errorText(error), null, true);
+    }
+  }
+
+  function focusTile(key) {
+    const index = state.apps.findIndex((app) => app.key === key);
+    const tile = $("apps").children[index] && $("apps").children[index].querySelector(".tile");
+    if (tile) tile.focus();
+  }
+
+  /* Online or not: asked once when Cattport opens and after a change, never in the background. */
+
+  async function checkHealth() {
+    if (!state.apps.length) return;
+    try { health = (await api("status")).status || {}; } catch (ignored) { health = {}; }
+    renderApps();
+  }
+
+  /* Several apps at once */
+
+  function setSelecting(on) {
+    selecting = on;
+    selected = new Set();
+    $("select").textContent = t(on ? "people.done" : "apps.select");
+    renderApps();
+  }
+
+  function toggleSelected(key) {
+    if (selected.has(key)) selected.delete(key); else selected.add(key);
+    renderApps();
+  }
+
+  function renderBulkBar() {
+    $("bulk-bar").hidden = !selecting;
+    if (selecting) $("save-bar").hidden = true;
+    $("bulk-count").textContent = t("bulk.count", { n: selected.size });
+    ["bulk-who", "bulk-hide", "bulk-show"].forEach((id) => { $(id).disabled = !selected.size; });
+  }
+
+  function openBulk() {
+    const chosen = state.apps.filter((app) => selected.has(app.key));
+    const first = chosen[0];
+    const same = chosen.every((app) => audienceOf(app) === audienceOf(first) && JSON.stringify(app.people || {}) === JSON.stringify(first.people || {}));
+    const people = (same && first.people) || {};
+    const copy = () => ({ users: (people.users || []).slice(), groups: (people.groups || []).slice() });
+    const who = same ? audienceOf(first) : "admins";
+    bulkDraft = { audience: who, prefix: "bulk-", only: who === "people" ? copy() : { users: [], groups: [] }, except: who === "everyone" ? copy() : { users: [], groups: [] } };
+    target = bulkDraft;
+    $("bulk-title").textContent = t("bulk.title", { n: chosen.length });
+    $("bulk-error").hidden = true;
+    setAudience(who);
+    $("bulk-sheet").showModal();
+  }
+
+  async function bulkChange(change) {
+    try {
+      state = await api("bulk_update", { keys: Array.from(selected), change: change });
+      setSelecting(false);
+      showStatus(t("bulk.done"));
+      return true;
+    } catch (error) {
+      showStatus(errorText(error), null, true);
+      return false;
+    }
+  }
+
+  async function applyBulk() {
+    target = bulkDraft;
+    if (bulkDraft.audience === "people" && !countPeople(bulkDraft.only)) {
+      $("bulk-error").textContent = t("edit.needPeople");
+      $("bulk-error").hidden = false;
+      return;
+    }
+    const people = bulkDraft.audience === "admins" ? null : draftPeople();
+    if (await bulkChange({ audience: bulkDraft.audience, people: people })) $("bulk-sheet").close();
+  }
+
+  /* A container's port or the NAS address changed: offer the new local address. */
+
+  const IGNORED_MOVES = "cattport.ignoredMoves";
+
+  function ignoredMoves() {
+    try { return new Set(JSON.parse(localStorage.getItem(IGNORED_MOVES) || "[]")); } catch (ignored) { return new Set(); }
+  }
+
+  function isLanIp(host) {
+    return /^\d+\.\d+\.\d+\.\d+$/.test(host) && window.CATTPORT_NETWORK.isPrivate(host);
+  }
+
+  function findMoves() {
+    if (!containers) return [];
+    const ignored = ignoredMoves();
+    const found = [];
+    state.apps.forEach((app) => {
+      let url;
+      try { url = new URL(app.url); } catch (ignored) { return; }
+      const container = app.container ? containers.find((item) => item.name === app.container)
+        : containers.find((item) => friendlyName(item.name).toLowerCase() === app.name.toLowerCase());
+      if (!container || !container.webPorts.length) return;
+      // Only addresses on this NAS; a link elsewhere is never touched.
+      if (!(url.hostname === state.lanIp || url.hostname === location.hostname || isLanIp(url.hostname))) return;
+      const port = Number(url.port) || (url.protocol === "https:" ? 443 : 80);
+      const newPort = container.webPorts.includes(port) ? port : container.webPorts[0];
+      // The host is changed only for tiles added from Docker: then the old address can only be this NAS's.
+      const newHost = app.container && state.lanIp && isLanIp(url.hostname) && url.hostname !== state.lanIp ? state.lanIp : url.hostname;
+      if (newPort === port && newHost === url.hostname) return;
+      const next = new URL(app.url);
+      next.hostname = newHost;
+      next.port = String(newPort);
+      let to = next.href;
+      if (!/\/$/.test(app.url) && next.pathname === "/" && !next.search && !next.hash) to = to.replace(/\/$/, "");
+      const id = app.key + " " + to;
+      if (!ignored.has(id)) found.push({ key: app.key, name: app.name, from: app.url, to: to, id: id });
+    });
+    return found;
+  }
+
+  function renderMoves() {
+    moves = findMoves();
+    $("moved").hidden = !moves.length;
+    $("moved-text").textContent = t("moved.count", { n: moves.length });
+  }
+
+  function openMoves() {
+    $("moved-list").replaceChildren(...moves.map((move) => {
+      const box = el("input", { type: "checkbox", checked: true });
+      box.dataset.id = move.id;
+      return el("li", {}, [el("label", {}, [box, el("span", { className: "grow" }, [el("b", { textContent: move.name }), el("small", { className: "change", textContent: move.from + "  →  " + move.to })])])]);
+    }));
+    $("moved-sheet").showModal();
+  }
+
+  async function applyMoves() {
+    const chosen = Array.from($("moved-list").querySelectorAll("input:checked")).map((box) => moves.find((move) => move.id === box.dataset.id));
+    if (!chosen.length) { $("moved-sheet").close(); return; }
+    try {
+      state = await api("update_addresses", { items: chosen.map((move) => ({ key: move.key, url: move.to })) });
+      $("moved-sheet").close();
+      renderApps();
+      renderMoves();
+      showStatus(t("moved.updated", { n: chosen.length }));
+      checkHealth();
+    } catch (error) {
+      showStatus(errorText(error), null, true);
+    }
+  }
+
+  function ignoreMoves() {
+    const ignored = ignoredMoves();
+    moves.forEach((move) => ignored.add(move.id));
+    try { localStorage.setItem(IGNORED_MOVES, JSON.stringify(Array.from(ignored))); } catch (ignored) { /* shown again next time */ }
+    $("moved-sheet").close();
+    renderMoves();
   }
 
   function audienceOf(app) {
@@ -418,13 +650,14 @@
       const dataUrl = icon || (await markIcon(name));
       if (!item.webPorts.length) { needsEditor = item; continue; }
       try {
-        state = await api("save_app", { key: null, app: { name: name, url: serviceUrl(item.webPorts[0]), allUsers: false, follow: true }, icons: await rasterize(dataUrl) });
+        state = await api("save_app", { key: null, app: { name: name, url: serviceUrl(item.webPorts[0]), allUsers: false, follow: true, container: item.name }, icons: await rasterize(dataUrl) });
       } catch (error) {
         showStatus(errorText(error), null, true);
       }
     }
     $("docker-sheet").close();
     renderApps();
+    checkHealth();
     if (needsEditor) openEditor(null, needsEditor);
   }
 
@@ -586,37 +819,38 @@
     suggestTimer = setTimeout(suggest, 500);
   }
 
+  // The editor and the change for several apps share these; "target" is whichever is open.
   function setAudience(value) {
-    draft.audience = value;
-    $("audience").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.value === value)));
+    target.audience = value;
+    $(target.prefix + "audience").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.value === value)));
     renderPeople();
   }
 
   /* People: "Everyone" can leave some out, "Chosen people" lists who sees the app. */
 
   function draftPeople() {
-    return draft.audience === "people" ? draft.only : draft.except;
+    return target.audience === "people" ? target.only : target.except;
   }
 
   function renderPeople() {
-    const line = $("people-line");
-    line.hidden = draft.audience === "admins";
+    const line = $(target.prefix + "people-line");
+    line.hidden = target.audience === "admins";
     if (line.hidden) return;
-    $("people-label").textContent = t(draft.audience === "people" ? "people.only" : "people.except");
+    $(target.prefix + "people-label").textContent = t(target.audience === "people" ? "people.only" : "people.except");
     const people = draftPeople();
     const chip = (name, kind) => {
       const label = kind === "groups" ? t("people.group", { name: name }) : name;
       const button = el("button", { type: "button", textContent: label, title: t("people.remove", { name: label }), onclick: () => {
         people[kind] = people[kind].filter((item) => item !== name);
-        draft.touched = true;
+        target.touched = true;
         renderPeople();
       } });
       button.setAttribute("aria-label", t("people.remove", { name: label }));
       button.setAttribute("role", "listitem");
       return button;
     };
-    $("people").replaceChildren(...people.users.map((name) => chip(name, "users")), ...people.groups.map((name) => chip(name, "groups")));
-    $("people-add").textContent = t(countPeople(people) ? "people.change" : "people.choose");
+    $(target.prefix + "people").replaceChildren(...people.users.map((name) => chip(name, "users")), ...people.groups.map((name) => chip(name, "groups")));
+    $(target.prefix + "people-add").textContent = t(countPeople(people) ? "people.change" : "people.choose");
   }
 
   async function loadAccounts() {
@@ -638,7 +872,7 @@
     if (on) list.push(name);
     list.sort((a, b) => a.localeCompare(b));
     people[kind] = list;
-    draft.touched = true;
+    target.touched = true;
     renderPeople();
   }
 
@@ -663,7 +897,7 @@
   }
 
   async function openPeople() {
-    $("people-title").textContent = t(draft.audience === "people" ? "people.titleOnly" : "people.titleExcept");
+    $("people-title").textContent = t(target.audience === "people" ? "people.titleOnly" : "people.titleExcept");
     $("people-filter").value = "";
     $("people-name").value = "";
     $("people-list").replaceChildren(el("li", { className: "note", textContent: t("files.loading") }));
@@ -699,7 +933,8 @@
     const copy = () => ({ users: (people.users || []).slice(), groups: (people.groups || []).slice() });
     const who = app ? audienceOf(app) : "admins";
     draft = { key: app ? app.key : null, container: container || null, icon: null, iconChanged: false, touched: false, follow: app ? !!app.follow : !!container, originalUrl: url, audience: who, prints: [],
-      only: who === "people" ? copy() : { users: [], groups: [] }, except: who === "everyone" ? copy() : { users: [], groups: [] } };
+      only: who === "people" ? copy() : { users: [], groups: [] }, except: who === "everyone" ? copy() : { users: [], groups: [] }, prefix: "" };
+    target = draft;
     $("edit-title").textContent = t(app ? "edit.titleEdit" : "edit.titleNew");
     $("f-name").value = app ? app.name : container ? friendlyName(container.name) : "";
     $("f-url").value = url;
@@ -827,13 +1062,15 @@
       try { follow = draft.follow && (url === draft.originalUrl || new URL(url).hostname === location.hostname); } catch (ignored) { /* the server reports the bad address */ }
       state = await api("save_app", {
         key: draft.key,
-        app: { name: name, url: url, external: $("f-external").value.trim(), audience: draft.audience, allUsers: draft.audience !== "admins", people: draft.audience === "admins" ? null : draftPeople(), hidden: $("f-hidden").checked, follow: follow },
+        app: { name: name, url: url, external: $("f-external").value.trim(), audience: draft.audience, allUsers: draft.audience !== "admins", people: draft.audience === "admins" ? null : draftPeople(), hidden: $("f-hidden").checked, follow: follow, container: draft.container ? draft.container.name : undefined },
         icons: draft.iconChanged ? await rasterize(draft.icon) : null,
       });
       suggestRun++;
       draft.touched = false;
       $("edit-sheet").close();
       renderApps();
+      renderMoves();
+      checkHealth();
     } catch (error) {
       editError(errorText(error));
     } finally {
@@ -1045,6 +1282,7 @@
       const backup = JSON.parse(await file.text());
       state = await api("import", { backup: backup });
       renderApps();
+      checkHealth();
       showStatus(t("status.imported"));
     } catch (error) {
       showStatus(error instanceof SyntaxError ? t("error.invalid_backup") : errorText(error), null, true);
@@ -1096,9 +1334,20 @@
     $("icon-url").addEventListener("change", () => normalizeField($("icon-url"), "https"));
     $("edit-form").addEventListener("submit", saveEditor);
     $("delete-app").addEventListener("click", deleteApp);
-    $("audience").querySelectorAll("button").forEach((button) => button.addEventListener("click", () => { draft.touched = true; setAudience(button.dataset.value); }));
+    $("audience").querySelectorAll("button").forEach((button) => button.addEventListener("click", () => { target = draft; draft.touched = true; setAudience(button.dataset.value); }));
     $("preview").addEventListener("click", () => { iconError(""); $("icon-sheet").showModal(); });
-    $("people-add").addEventListener("click", openPeople);
+    $("people-add").addEventListener("click", () => { target = draft; openPeople(); });
+    $("select").addEventListener("click", () => setSelecting(!selecting));
+    $("bulk-done").addEventListener("click", () => setSelecting(false));
+    $("bulk-who").addEventListener("click", openBulk);
+    $("bulk-hide").addEventListener("click", () => bulkChange({ hidden: true }));
+    $("bulk-show").addEventListener("click", () => bulkChange({ hidden: false }));
+    $("bulk-apply").addEventListener("click", applyBulk);
+    $("bulk-audience").querySelectorAll("button").forEach((button) => button.addEventListener("click", () => { target = bulkDraft; setAudience(button.dataset.value); }));
+    $("bulk-people-add").addEventListener("click", () => { target = bulkDraft; openPeople(); });
+    $("moved-review").addEventListener("click", openMoves);
+    $("moved-apply").addEventListener("click", applyMoves);
+    $("moved-ignore").addEventListener("click", ignoreMoves);
     $("people-name-add").addEventListener("click", addPersonByName);
     $("people-name").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addPersonByName(); } });
     $("pick-pc").addEventListener("click", () => $("pc-file").click());
@@ -1174,6 +1423,9 @@
     if (host) host.listen(onSave);
     showScreen("apps");
     if (state.restored) showStatus(t("status.restored"), null, true);
+    checkHealth();
+    // Quietly, after the window is up: without Docker there is simply nothing to offer.
+    loadContainers().then(renderMoves).catch(() => {});
     if (!state.settings.welcomed) {
       $("welcome").showModal();
       runDiagnostics($("welcome-checks"));

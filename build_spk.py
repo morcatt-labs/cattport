@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-VERSION = "1.0.0-0022"
+VERSION = "1.0.0-0023"
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
 ICON_SIZES = (16, 24, 32, 48, 64, 72, 256)
@@ -20,8 +20,8 @@ INFO = {
     "version": VERSION,
     "os_min_ver": "7.0-40000",
     "displayname": "Cattport",
-    "description": "All your Docker services and links as tiles in the DSM menu, in one place. It never changes Docker or your services.",
-    "description_rum": "Toate serviciile din Docker și linkurile tale ca dale în meniul DSM, într-un singur loc. Nu modifică Docker sau serviciile.",
+    "description": "All your Docker services and links as tiles in the DSM menu, in one place. Add containers in a few clicks or any link you want, and Cattport finds their icons. Choose who sees each app: only admins, everyone, everyone except some people, or just the users and groups you pick. Each tile opens the local address at home and the domain address from outside. A dot shows which services respond, tiles keep the order you set, several apps change at once, and Cattport tells you when a container's port or the NAS address changes. In 22 languages, with backup and diagnostics. It never changes Docker or your services.",
+    "description_rum": "Toate serviciile din Docker și linkurile tale ca dale în meniul DSM, într-un singur loc. Adaugi containere din câteva clicuri sau orice link, iar Cattport le găsește iconițele. Alegi cine vede fiecare aplicație: doar administratorii, toată lumea, toată lumea în afară de unii sau doar utilizatorii și grupurile alese. Fiecare dală deschide adresa locală acasă și adresa pe domeniu din afară. Un punct arată ce servicii răspund, dalele păstrează ordinea aleasă, mai multe aplicații se schimbă odată, iar Cattport te anunță când se schimbă portul unui container sau adresa NAS-ului. În 22 de limbi, cu backup și diagnostic. Nu modifică Docker sau serviciile.",
     "arch": "noarch",
     "maintainer": "Morcatt Labs",
     "maintainer_url": "https://github.com/morcatt-labs/cattport",

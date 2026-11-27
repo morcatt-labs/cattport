@@ -5,7 +5,7 @@
 <p align="center"><strong>All your Docker services and links, right in the Synology DSM menu.</strong><br>Add them in a few clicks, choose who sees them, and open everything from one place.</p>
 
 <p align="center">
-  <a href="https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.5/Cattport-1.0.0-0022.spk"><img src="https://img.shields.io/badge/Download-Cattport_beta_5-1F74F5?style=for-the-badge" alt="Download Cattport beta 5"></a>
+  <a href="https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.6/Cattport-1.0.0-0023.spk"><img src="https://img.shields.io/badge/Download-Cattport_beta_6-1F74F5?style=for-the-badge" alt="Download Cattport beta 6"></a>
 </p>
 
 <p align="center">
@@ -38,7 +38,7 @@ DSM warns that Cattport isn't from Synology. That's expected for every package t
 
 ### Manual install
 
-1. **Download** [`Cattport-1.0.0-0022.spk`](https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.5/Cattport-1.0.0-0022.spk).
+1. **Download** [`Cattport-1.0.0-0023.spk`](https://github.com/morcatt-labs/cattport/releases/download/v1.0.0-beta.6/Cattport-1.0.0-0023.spk).
 2. In DSM, open **Package Center → Manual Install**, choose the file and finish the install.
 3. Open **Cattport** from the main menu, add your apps and press **Save to DSM**.
 
@@ -64,6 +64,9 @@ DSM warns that Cattport isn't from Synology. That's expected for every package t
 - **Adds Docker services in a few clicks,** or any link you want
 - **Finds icons for you** from the container or online, or use your own from your computer or File Station
 - **Works locally and behind a reverse proxy,** with a separate local and domain address
+- **Shows what's online:** a green or red dot on each app, checked when you open Cattport
+- **Keeps your order:** drag tiles into the order you want, and change several apps at once
+- **Notices changes:** when a container's port or the NAS address changes, it offers to update the tiles
 - **Lets you choose who sees each app:** only admins, everyone, everyone except some people, or just the users and groups you pick
 - **Stays out of the way:** it runs nothing in the background and doesn't change Docker or your services
 - **Speaks your language:** every language DSM supports, plus Romanian, in light and dark themes

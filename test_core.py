@@ -371,6 +371,58 @@ class CoreTest(unittest.TestCase):
         state = self.add(audience="people", people={"users": ["anna", "Anna"]})
         self.assertEqual(state["apps"][0]["people"]["users"], ["anna"])
 
+    def test_reorder_changes_menu_order_and_counts_once(self):
+        for name in ("A", "B", "C"):
+            self.add(name)
+        core.publish(self.paths, restarted=True)
+        state = core.handle(self.paths, "reorder", {"keys": ["C", "A", "B"]})
+        self.assertEqual([app["key"] for app in state["apps"]], ["C", "A", "B"])
+        self.assertEqual(state["pending"], 1)
+        core.publish(self.paths, restarted=True)
+        self.assertEqual(list(self.config()[".url"]), [core.TILE_PREFIX + key for key in ("C", "A", "B")])
+        self.assertEqual(core.public_state(self.paths)["pending"], 0)
+
+    def test_reorder_must_name_every_app_once(self):
+        for name in ("A", "B"):
+            self.add(name)
+        for keys in (["A"], ["A", "A"], ["A", "B", "X"], "AB", None):
+            with self.assertRaisesRegex(core.ApiError, "app_gone", msg=keys):
+                core.reorder(self.paths, {"keys": keys})
+
+    def test_bulk_change_of_who_sees(self):
+        for name in ("A", "B"):
+            self.add(name, audience="everyone")
+        state = core.handle(self.paths, "bulk_update", {"keys": ["A", "B"], "change": {"audience": "people", "people": {"users": ["anna"]}}})
+        self.assertEqual([(app["audience"], app["people"]["users"]) for app in state["apps"]], [("people", ["anna"])] * 2)
+        state = core.handle(self.paths, "bulk_update", {"keys": ["A"], "change": {"hidden": True}})
+        self.assertEqual([app["hidden"] for app in state["apps"]], [True, False])
+        self.assertEqual(state["apps"][0]["audience"], "people")
+
+    def test_bulk_change_is_all_or_nothing(self):
+        for name in ("A", "B"):
+            self.add(name)
+        for payload in ({"keys": ["A", "X"], "change": {"hidden": True}}, {"keys": ["A"], "change": {"name": "<b>"}},
+                        {"keys": ["A", "B"], "change": {"audience": "people", "people": {"users": []}}}, {"keys": [], "change": {"hidden": True}}):
+            with self.assertRaises(core.ApiError, msg=payload):
+                core.bulk_update(self.paths, payload)
+        self.assertEqual([app.get("hidden") for app in core.load_state(self.paths)["apps"]], [False, False])
+
+    def test_new_addresses_keep_everything_else(self):
+        self.add(url="http://192.168.1.2:2283", follow=True, container="immich_server", audience="people", people={"users": ["anna"]})
+        state = core.handle(self.paths, "update_addresses", {"items": [{"key": "Immich", "url": "http://192.168.1.9:2300"}]})
+        app = state["apps"][0]
+        self.assertEqual((app["url"], app["follow"], app["container"], app["people"]["users"]), ("http://192.168.1.9:2300", True, "immich_server", ["anna"]))
+        with self.assertRaisesRegex(core.ApiError, "invalid_url"):
+            core.update_addresses(self.paths, {"items": [{"key": "Immich", "url": "javascript:x"}]})
+
+    def test_container_survives_editing_and_backups(self):
+        self.add(container="immich_server")
+        state = core.save_app(self.paths, {"key": "Immich", "app": {"name": "Photos", "url": "http://nas.local:2283"}})
+        self.assertEqual(state["apps"][0]["container"], "immich_server")
+        backup = json.loads(json.dumps(core.export_data(self.paths)))
+        self.assertEqual(backup["apps"][0]["app"]["container"], "immich_server")
+        self.assertNotIn("container", self.add("X", container="<x>")["apps"][1])
+
     def test_chosen_people_need_someone(self):
         with self.assertRaisesRegex(core.ApiError, "people_required"):
             self.add(audience="people", people={"users": [], "groups": []})
@@ -539,6 +591,16 @@ class FetchTest(unittest.TestCase):
     def test_redirect_cannot_leave_http(self):
         with self.assertRaises(core.ApiError):
             core.fetch_image("http://127.0.0.1:%d/to-ftp" % self.port)
+
+    def test_status_of_every_app_at_once(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        paths = core.Paths(os.path.join(temp.name, "target"), os.path.join(temp.name, "var"))
+        os.makedirs(paths.var)
+        for name, url in (("Up", "http://127.0.0.1:%d/" % self.port), ("Down", "http://127.0.0.1:1/")):
+            core.save_app(paths, {"app": {"name": name, "url": url}, "icons": ICONS})
+        self.assertEqual(core.handle(paths, "status", {})["status"], {"Up": True, "Down": False})
+        self.assertEqual(core.handle(paths, "status", {"keys": ["Up"]})["status"], {"Up": True})
 
     def test_rejects_non_http_and_bad_ports(self):
         with self.assertRaises(core.ApiError):

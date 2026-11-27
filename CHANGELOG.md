@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0 beta 6
+
+- **Online or not:** a green or red dot on each app shows whether its service responds, checked when Cattport opens
+- **Order:** drag tiles to change their order, or use Alt and the arrow keys; Save to DSM sends the order to the DSM menu
+- **Several at once:** choose Select, pick apps, then change who sees them, hide them or show them
+- **New addresses:** when a container's port or the NAS address changes, Cattport offers to update the tiles
+- A longer description in Package Center
+
 ## 1.0.0 beta 5
 
 - Package Center shows how many times Cattport was downloaded, updated every day

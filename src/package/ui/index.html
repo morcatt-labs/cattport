@@ -25,7 +25,9 @@
       <div class="head">
         <label class="search"><span class="sr" data-i18n="apps.search"></span><input id="search" type="search" data-i18n-placeholder="apps.search"></label>
         <button class="btn soft" id="add" type="button" data-i18n="apps.add"></button>
+        <button class="btn soft" id="select" type="button" data-i18n="apps.select"></button>
       </div>
+      <div class="notice" id="moved" role="status" hidden><span id="moved-text"></span><button class="btn soft" id="moved-review" type="button" data-i18n="moved.review"></button></div>
       <div class="empty" id="empty" hidden>
         <h2 data-i18n="apps.emptyTitle"></h2>
         <p data-i18n="apps.emptyText"></p>
@@ -98,6 +100,13 @@
   </main>
 
   <div class="save-bar" id="save-bar" hidden><span class="unsaved"><i aria-hidden="true"></i><span id="unsaved" role="status"></span></span><button class="btn save" id="save-dsm" type="button" data-i18n="status.applyNow"></button></div>
+  <div class="save-bar bulk-bar" id="bulk-bar" hidden>
+    <span class="unsaved" id="bulk-count" role="status"></span>
+    <button class="btn soft" id="bulk-who" type="button" data-i18n="bulk.who"></button>
+    <button class="btn soft" id="bulk-hide" type="button" data-i18n="bulk.hide"></button>
+    <button class="btn soft" id="bulk-show" type="button" data-i18n="bulk.show"></button>
+    <button class="btn primary" id="bulk-done" type="button" data-i18n="people.done"></button>
+  </div>
   <div class="status" id="status" role="status" hidden><span id="status-text"></span><button id="status-action" type="button" hidden></button></div>
 </div>
 
@@ -190,6 +199,40 @@
   </div>
   <span class="inline"><input id="icon-url" type="url" data-i18n-placeholder="edit.iconUrl" data-i18n-label="edit.iconUrl"><button class="btn soft" id="icon-url-go" type="button" data-i18n="edit.use"></button></span>
   <p class="error" id="icon-error" role="alert" hidden></p>
+</dialog>
+
+<dialog class="sheet" id="bulk-sheet">
+  <header class="sheet-head"><h2 class="grow" id="bulk-title"></h2><button class="close" type="button" data-close data-i18n-label="common.close">×</button></header>
+  <div class="panel options">
+    <div class="line"><span data-i18n="edit.audience"></span>
+      <div class="segments" id="bulk-audience" role="group" data-i18n-label="edit.audience">
+        <button type="button" data-value="admins" data-i18n="edit.admins"></button>
+        <button type="button" data-value="everyone" data-i18n="edit.everyone"></button>
+        <button type="button" data-value="people" data-i18n="edit.people"></button>
+      </div>
+    </div>
+    <div class="line people-line" id="bulk-people-line" hidden>
+      <span id="bulk-people-label"></span>
+      <div class="chips people" id="bulk-people" role="list"></div>
+      <button class="btn soft" id="bulk-people-add" type="button" data-i18n="people.choose"></button>
+    </div>
+  </div>
+  <p class="error" id="bulk-error" role="alert" hidden></p>
+  <footer class="foot"><span class="grow"></span>
+    <button class="btn soft big" type="button" data-close data-i18n="common.cancel"></button>
+    <button class="btn primary big" id="bulk-apply" type="button" data-i18n="common.save"></button>
+  </footer>
+</dialog>
+
+<dialog class="sheet" id="moved-sheet">
+  <header class="sheet-head"><h2 class="grow" data-i18n="moved.title"></h2><button class="close" type="button" data-close data-i18n-label="common.close">×</button></header>
+  <p data-i18n="moved.text"></p>
+  <ul class="rows" id="moved-list"></ul>
+  <footer class="foot">
+    <button class="btn soft big" id="moved-ignore" type="button" data-i18n="moved.ignore"></button>
+    <span class="grow"></span>
+    <button class="btn primary big" id="moved-apply" type="button" data-i18n="moved.update"></button>
+  </footer>
 </dialog>
 
 <dialog class="sheet" id="people-sheet">

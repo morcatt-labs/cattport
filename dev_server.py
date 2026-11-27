@@ -59,6 +59,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             _, _, kind, value = self.path.split("/")
             if kind == "docker":
                 DOCKER = value
+            elif kind == "port":
+                CONTAINERS[0]["port_bindings"] = [{"host_port": int(value)}]
             elif kind == "user":
                 PERSON.update(user=value, groups=["users"], admin=value == "admin")
             else:

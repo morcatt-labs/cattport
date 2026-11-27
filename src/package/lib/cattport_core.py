@@ -217,6 +217,10 @@ def validate_app(raw):
         "hidden": bool(raw.get("hidden", False)),
         "follow": False,
     }
+    # The container a tile was added from, so Cattport can notice when its port or the NAS address changes.
+    container = raw.get("container")
+    if isinstance(container, str) and ACCOUNT.match(container) and container == container.strip():
+        app["container"] = container
     # A Docker tile with no path follows whichever address DSM was opened on.
     if raw.get("follow") and parsed.port and parsed.path in ("", "/") and not parsed.query:
         app["follow"] = True
@@ -495,11 +499,18 @@ def _tile_snapshot(state):
     return snapshot
 
 
+def _visible_order(state):
+    return [app["key"] for app in state["apps"] if not app.get("hidden")]
+
+
 def _pending_changes(state):
     """How many tiles differ from what DSM last loaded, counting added, changed and removed ones."""
     saved = state.get("deployed", {})
     current = _tile_snapshot(state)
     changed = sum(1 for key in set(saved) | set(current) if saved.get(key) != current.get(key))
+    # A new order is one more change for DSM's menu, as long as the same tiles are there.
+    if not changed and "deployed_order" in state and state["deployed_order"] != _visible_order(state):
+        changed = 1
     # Tiles saved but whose DSM privileges were not written yet still need Save to DSM.
     rules = _rules_fingerprint(state)
     if not changed and rules and state.get("rules_applied") != rules:
@@ -532,6 +543,7 @@ def publish(paths, restarted=False):
     # DSM refreshes its list only when the package stops, so only a restart counts as saved.
     if restarted:
         state["deployed"] = _tile_snapshot(state)
+        state["deployed_order"] = _visible_order(state)
     save_state(paths, state)
     return {"ids": sorted(config.get(".url", {})), "rules": privilege_rules(state), "fingerprint": _rules_fingerprint(state),
             "state": public_state(paths, state)}
@@ -563,7 +575,7 @@ def export_data(paths):
         icons = {}
         for size in ICON_SIZES:
             icons[str(size)] = base64.b64encode(_icon_bytes(paths, app, size)).decode("ascii")
-        apps.append({"app": {name: app.get(name) for name in ("name", "url", "external", "desc", "audience", "allUsers", "people", "hidden", "follow")}, "icons": icons})
+        apps.append({"app": {name: app.get(name) for name in ("name", "url", "external", "desc", "audience", "allUsers", "people", "hidden", "follow", "container")}, "icons": icons})
     return {"format": "cattport-backup", "schema": SCHEMA, "apps": apps}
 
 
@@ -667,6 +679,74 @@ def _sniff_image(body):
     if (head.startswith(b"<svg") or head.startswith(b"<?xml")) and b"<svg" in head:
         return "image/svg+xml"
     return None
+
+
+def _saved_app(app):
+    """The fields validate_app takes, from an app as it is saved."""
+    return {name: app.get(name) for name in ("name", "url", "external", "desc", "audience", "allUsers", "people", "hidden", "follow", "container")}
+
+
+def reorder(paths, payload):
+    """The apps in the order given; it must name every app exactly once."""
+    state = load_state(paths)
+    keys = payload.get("keys")
+    current = [app["key"] for app in state["apps"]]
+    if not isinstance(keys, list) or sorted(map(str, keys)) != sorted(current) or len(keys) != len(current):
+        raise ApiError("app_gone")
+    by_key = {app["key"]: app for app in state["apps"]}
+    state["apps"] = [by_key[key] for key in keys]
+    save_state(paths, state)
+    return public_state(paths, state)
+
+
+def _keys(state, payload):
+    keys = payload.get("keys")
+    if not isinstance(keys, list) or not keys:
+        raise ApiError("app_gone")
+    return [_find(state, key) for key in dict.fromkeys(keys)]
+
+
+def bulk_update(paths, payload):
+    """One change for several apps: who sees them, or whether they are hidden. Checked for all before any is saved."""
+    state = load_state(paths)
+    apps = _keys(state, payload)
+    change = payload.get("change")
+    if not isinstance(change, dict) or not change or not set(change) <= {"audience", "people", "hidden"}:
+        raise ApiError("invalid_app")
+    if "audience" in change and "people" not in change:
+        change = dict(change, people=None)
+    updated = [validate_app(dict(_saved_app(app), **change)) for app in apps]
+    for app, fields in zip(apps, updated):
+        app.update(fields)
+    save_state(paths, state)
+    return public_state(paths, state)
+
+
+def update_addresses(paths, payload):
+    """New local addresses for apps whose container port or NAS address changed."""
+    state = load_state(paths)
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise ApiError("invalid_app")
+    pending = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ApiError("invalid_app")
+        app = _find(state, item.get("key"))
+        pending.append((app, validate_app(dict(_saved_app(app), url=item.get("url")))))
+    for app, fields in pending:
+        app.update(fields)
+    save_state(paths, state)
+    return public_state(paths, state)
+
+
+def service_status(paths, payload):
+    """Whether each app's local address answers right now, checked from the NAS, all at once."""
+    state = load_state(paths)
+    apps = [app for app in state["apps"] if app["key"] in set(map(str, payload.get("keys") or []))] if payload.get("keys") else state["apps"]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        answers = pool.map(lambda app: check_address({"url": app["url"]})["reachable"], apps)
+        return {"status": {app["key"]: up for app, up in zip(apps, answers)}}
 
 
 def check_address(payload):
@@ -793,7 +873,7 @@ def internet_icons(paths, payload):
     return {"results": _run(tasks)}
 
 
-CHANGES_DATA = {"save_app", "delete_app", "undo_delete", "save_settings", "publish", "import", "rules_applied"}
+CHANGES_DATA = {"save_app", "delete_app", "undo_delete", "save_settings", "publish", "import", "rules_applied", "reorder", "bulk_update", "update_addresses"}
 
 
 @contextlib.contextmanager
@@ -827,6 +907,14 @@ def _dispatch(paths, action, payload):
         return publish(paths)
     if action == "rules_applied":
         return rules_applied(paths, payload)
+    if action == "reorder":
+        return reorder(paths, payload)
+    if action == "bulk_update":
+        return bulk_update(paths, payload)
+    if action == "update_addresses":
+        return update_addresses(paths, payload)
+    if action == "status":
+        return service_status(paths, payload)
     if action == "icon":
         return icon_preview(paths, payload)
     if action == "export":

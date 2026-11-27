@@ -191,6 +191,23 @@ input::placeholder { color: var(--muted); }
 .chips.people button { display: inline-flex; align-items: center; gap: 6px; padding-right: 10px; color: var(--text); background: var(--field); }
 .chips.people button::after { content: "×"; font-size: 15px; line-height: 1; opacity: .7; }
 .rows .section { padding: 10px 10px 2px; font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.tile { position: relative; }
+.tile .health { position: absolute; top: 14px; right: calc(50% - 46px); width: 13px; height: 13px; border-radius: 50%; border: 2.5px solid var(--bg); background: var(--muted); opacity: 0; transition: opacity .2s; }
+.tile .health.up { background: var(--ok); opacity: 1; }
+.tile .health.down { background: var(--danger); opacity: 1; }
+.tile .mark { position: absolute; top: 10px; left: 10px; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--muted); background: var(--raised); }
+.tile[aria-pressed="true"] { background: var(--soft); }
+.tile[aria-pressed="true"] .mark { border-color: var(--accent); background: var(--accent) radial-gradient(circle, #fff 0 3px, transparent 3.5px); }
+.grid li[draggable="true"] .tile { cursor: grab; }
+.grid li.dragging { opacity: .35; }
+.grid li.drop-before .tile { box-shadow: -3px 0 0 var(--accent); }
+.grid li.drop-after .tile { box-shadow: 3px 0 0 var(--accent); }
+.bulk-bar { gap: 8px; padding: 8px 8px 8px 20px; }
+.bulk-bar .btn { height: 40px; border-radius: 999px; }
+.notice { align-self: center; display: flex; align-items: center; gap: 14px; max-width: 640px; padding: 8px 8px 8px 18px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 13px; font-weight: 550; }
+.notice::before { content: ""; flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--warn); }
+.notice .btn { height: 34px; border-radius: 999px; }
+.rows .change { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .error { margin: 0; color: var(--danger) !important; font-size: 13px; }
 .warn { margin: 0; color: var(--warn) !important; font-size: 13px; }
 
