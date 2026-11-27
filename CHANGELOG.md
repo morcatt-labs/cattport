@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 beta 4
 
+- **Chosen people:** show an app only to the users and groups you pick, or to everyone except some of them. Cattport sets the matching DSM Application Privileges when you save.
+- **Updates in Package Center:** add the Morcatt Labs package source to get new versions straight in DSM
+- Tiles now open through Cattport, which checks who is signed in, so someone who isn't allowed can't open a tile by its link
+- Tile addresses are no longer in files anyone can download from DSM without signing in
+- App names and descriptions can't contain markup, which DSM would show in its menu
+- Safer checks for addresses, backups and imports
 - The arrow in the Language list now sits inside its box
 
 ## 1.0.0 beta 3

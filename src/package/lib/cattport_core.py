@@ -40,6 +40,13 @@ ICON_CDNS = (
 NAME_SUFFIXES = ("server", "web", "app", "docker", "ui", "main")
 LANGUAGES = ("auto", "en", "ro", "cs", "da", "de", "es", "fr", "hu", "it", "ja", "ko", "nb", "nl", "pl", "pt-BR", "pt-PT", "ru", "sv", "th", "tr", "zh-Hans", "zh-Hant")
 DEFAULT_SETTINGS = {"language": "auto", "theme": "auto", "online": None, "welcomed": False}
+MAX_URL = 2048
+MAX_PEOPLE = 200
+AUDIENCES = ("admins", "everyone", "people")
+# DSM shows names and descriptions in its own menu; markup there would run for every user.
+UNSAFE_TEXT = re.compile(r"[<>\"`\x00-\x1f\x7f]")
+# Local, LDAP ("user@ldap") and domain ("DOMAIN\\user") accounts; never markup or control characters.
+ACCOUNT = re.compile(r"^[^<>\"`/:*?|\x00-\x1f\x7f]{1,128}$")
 
 
 class ApiError(Exception):
@@ -58,6 +65,8 @@ class Paths:
         self.images = os.path.join(self.ui, "images")
         self.version = os.path.join(self.target, "lib", "version")
         self.lock = os.path.join(self.var, ".lock")
+        # What tiles open, as last saved to DSM. Kept outside ui/, which anyone can download without signing in.
+        self.links = os.path.join(self.var, "links.json")
 
 
 def _write_atomic(path, data):
@@ -85,6 +94,8 @@ def _read_state(path):
 def migrate(state):
     """Upgrades older formats in place; a newer format is refused so its data stays untouched."""
     version = state.get("schema", 1)
+    if not isinstance(version, int):
+        raise ValueError("schema")
     if version > SCHEMA:
         raise ApiError("newer_data")
     state["schema"] = SCHEMA
@@ -130,39 +141,84 @@ def make_key(name, taken):
     return key
 
 
+def _web_address(value):
+    value = str(value or "").strip()
+    if len(value) > MAX_URL:
+        raise ApiError("invalid_url")
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        parsed.port
+    except ValueError:
+        raise ApiError("invalid_url")
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or UNSAFE_TEXT.search(value) or " " in value:
+        raise ApiError("invalid_url")
+    return value, parsed
+
+
+def _accounts(raw):
+    """A sorted list of user or group names, without duplicates."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or len(raw) > MAX_PEOPLE:
+        raise ApiError("invalid_people")
+    names = {}
+    for name in raw:
+        if not isinstance(name, str) or not ACCOUNT.match(name) or name != name.strip():
+            raise ApiError("invalid_people")
+        names.setdefault(name.lower(), name)
+    return sorted(names.values(), key=str.lower)
+
+
+def _people(raw):
+    if raw is None:
+        return {"users": [], "groups": []}
+    if not isinstance(raw, dict):
+        raise ApiError("invalid_people")
+    return {"users": _accounts(raw.get("users")), "groups": _accounts(raw.get("groups"))}
+
+
+def audience(app):
+    """admins, everyone or people; apps saved before 1.0.0 beta 4 only have allUsers."""
+    value = app.get("audience")
+    if value in AUDIENCES:
+        return value
+    return "everyone" if app.get("allUsers") else "admins"
+
+
 def validate_app(raw):
     if not isinstance(raw, dict):
         raise ApiError("invalid_app")
     name = str(raw.get("name", "")).strip()
-    url = str(raw.get("url", "")).strip()
     if not 1 <= len(name) <= 48:
         raise ApiError("name_length")
-    try:
-        parsed = urllib.parse.urlsplit(url)
-        port = parsed.port
-    except ValueError:
-        raise ApiError("invalid_url")
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise ApiError("invalid_url")
+    desc = str(raw.get("desc", "")).strip()[:120]
+    if UNSAFE_TEXT.search(name) or UNSAFE_TEXT.search(desc):
+        raise ApiError("unsafe_text")
+    url, parsed = _web_address(raw.get("url"))
     external = str(raw.get("external") or "").strip()
     if external:
-        try:
-            outside = urllib.parse.urlsplit(external)
-        except ValueError:
-            raise ApiError("invalid_url")
-        if outside.scheme not in ("http", "https") or not outside.hostname:
-            raise ApiError("invalid_url")
+        external, _ = _web_address(external)
+    who = audience(raw)
+    people = _people(raw.get("people"))
+    if who == "admins" or not (people["users"] or people["groups"]):
+        people = {"users": [], "groups": []}
+        if who == "people":
+            raise ApiError("people_required")
     app = {
         "name": name,
         "url": url,
         "external": external,
-        "desc": str(raw.get("desc", "")).strip()[:120],
-        "allUsers": bool(raw.get("allUsers", False)),
+        "desc": desc,
+        "audience": who,
+        # Kept for older backups and for DSM, which only knows admins or everyone.
+        "allUsers": who != "admins",
+        # For "people" these see the tile; for "everyone" these don't.
+        "people": people,
         "hidden": bool(raw.get("hidden", False)),
         "follow": False,
     }
     # A Docker tile with no path follows whichever address DSM was opened on.
-    if raw.get("follow") and port and parsed.path in ("", "/") and not parsed.query:
+    if raw.get("follow") and parsed.port and parsed.path in ("", "/") and not parsed.query:
         app["follow"] = True
     return app
 
@@ -293,35 +349,112 @@ def version(paths):
         return "dev"
 
 
+def opener_url(app):
+    return "webman/3rdparty/%s/open.html?app=%s" % (PACKAGE, app["key"])
+
+
 def tile_entry(app):
+    """Every tile opens through Cattport, which checks who is signed in; the address itself never reaches DSM's files."""
+    who = audience(app)
+    people = app.get("people") or {}
+    restricted = who == "people" or (who == "everyone" and (people.get("users") or people.get("groups")))
     entry = {
         "type": "url",
         "icon": "images/%s.%s_{0}.png" % (app["key"], app.get("icon_rev", "base")),
-        "title": app["name"],
-        "desc": app.get("desc", ""),
-        "url": app["url"],
-        "allUsers": bool(app.get("allUsers")),
+        # Apps saved before 1.0.0 beta 4 were not checked for markup.
+        "title": UNSAFE_TEXT.sub("", app["name"]),
+        "desc": UNSAFE_TEXT.sub("", app.get("desc", "")),
+        "url": opener_url(app),
+        "allUsers": who != "admins",
     }
-    # No grantPrivilege: DSM would then need a privilege record, which a published tile doesn't have, and hide it from everyone.
-    if app.get("external"):
-        entry["url"] = "webman/3rdparty/%s/open.html?app=%s" % (PACKAGE, app["key"])
-    elif app.get("follow"):
-        parsed = urllib.parse.urlsplit(app["url"])
-        entry.update(url="/", port=parsed.port, protocol=parsed.scheme)
+    if restricted:
+        # DSM then shows the tile only to the users and groups its Application Privileges allow, which Cattport sets.
+        entry["grantPrivilege"] = "all"
+        entry["allUsers"] = False
     return entry
 
 
+def link_entry(app):
+    link = {"url": app["url"], "external": app.get("external", ""), "audience": audience(app),
+            "people": app.get("people") or {"users": [], "groups": []}}
+    if app.get("follow"):
+        parsed = urllib.parse.urlsplit(app["url"])
+        link.update(port=parsed.port, protocol=parsed.scheme)
+    return link
+
+
 def build_links(state):
-    """What open.html needs for tiles with an outside address."""
-    links = {}
+    """Where each visible tile goes and who may open it."""
+    return {app["key"]: link_entry(app) for app in state["apps"] if not app.get("hidden")}
+
+
+def privilege_rules(state):
+    """DSM Application Privileges per tile id. Tiles without people get none, so rules from an earlier choice don't outlive it."""
+    rules = {}
     for app in state["apps"]:
-        if app.get("external") and not app.get("hidden"):
-            link = {"url": app["url"], "external": app["external"]}
-            if app.get("follow"):
-                parsed = urllib.parse.urlsplit(app["url"])
-                link.update(port=parsed.port, protocol=parsed.scheme)
-            links[app["key"]] = link
-    return links
+        if app.get("hidden"):
+            continue
+        entry = tile_entry(app)
+        people = (app.get("people") or {}) if "grantPrivilege" in entry else {}
+        rules[TILE_PREFIX + app["key"]] = {"mode": audience(app) if "grantPrivilege" in entry else "none",
+                                           "users": list(people.get("users", [])), "groups": list(people.get("groups", []))}
+    # Tiles removed or hidden since the last save: clear what DSM still keeps for them.
+    for key in state.get("deployed", {}):
+        rules.setdefault(TILE_PREFIX + key, {"mode": "none", "users": [], "groups": []})
+    return rules
+
+
+def _rules_fingerprint(state):
+    """Only rules that let people in or keep them out count; clean-ups don't need a retry."""
+    wanted = {key: rule for key, rule in privilege_rules(state).items() if rule["mode"] != "none"}
+    return hashlib.sha256(json.dumps(wanted, sort_keys=True).encode("utf-8")).hexdigest() if wanted else ""
+
+
+def rules_applied(paths, payload):
+    """Called by the DSM page after it wrote the rules it was given at publish."""
+    state = load_state(paths)
+    if payload.get("fingerprint") == _rules_fingerprint(state):
+        state["rules_applied"] = payload["fingerprint"]
+        save_state(paths, state)
+    return public_state(paths, state)
+
+
+def may_open(link, person):
+    """person: {"user", "groups", "admin"}. Administrators always may, as in DSM."""
+    if person.get("admin"):
+        return True
+    who = link.get("audience")
+    people = link.get("people") or {}
+    user = str(person.get("user", "")).lower()
+    groups = {str(group).lower() for group in person.get("groups", [])}
+    listed = user in {name.lower() for name in people.get("users", [])} or bool(groups & {name.lower() for name in people.get("groups", [])})
+    if who == "everyone":
+        if people.get("users") or people.get("groups"):
+            # DSM allows only the local "users" group here; accounts outside it don't see the tile either.
+            return not listed and "users" in groups
+        return True
+    if who == "people":
+        return listed
+    return False
+
+
+def open_link(paths, payload, person):
+    """For open.html: the saved destination, only for someone allowed to see the tile."""
+    key = payload.get("key")
+    try:
+        with open(paths.links, encoding="utf-8") as handle:
+            links = json.load(handle)
+    except (OSError, ValueError):
+        links = {}
+    link = links.get(key) if isinstance(key, str) and isinstance(links, dict) else None
+    if not isinstance(link, dict):
+        raise ApiError("app_gone")
+    if not may_open(link, person):
+        raise ApiError("not_allowed")
+    result = {"url": link["url"], "external": link.get("external", "")}
+    if link.get("port"):
+        result.update(port=link["port"], protocol=link["protocol"])
+    return result
 
 
 def build_config(state, js_version):
@@ -366,7 +499,12 @@ def _pending_changes(state):
     """How many tiles differ from what DSM last loaded, counting added, changed and removed ones."""
     saved = state.get("deployed", {})
     current = _tile_snapshot(state)
-    return sum(1 for key in set(saved) | set(current) if saved.get(key) != current.get(key))
+    changed = sum(1 for key in set(saved) | set(current) if saved.get(key) != current.get(key))
+    # Tiles saved but whose DSM privileges were not written yet still need Save to DSM.
+    rules = _rules_fingerprint(state)
+    if not changed and rules and state.get("rules_applied") != rules:
+        changed = 1
+    return changed
 
 
 def publish(paths, restarted=False):
@@ -382,7 +520,10 @@ def publish(paths, restarted=False):
             wanted.add(name)
             _write_atomic(os.path.join(paths.images, name), _icon_bytes(paths, app, size))
     config = build_config(state, version(paths))
-    _write_atomic(os.path.join(paths.ui, "links.json"), json.dumps(build_links(state), ensure_ascii=False).encode("utf-8"))
+    _write_atomic(paths.links, json.dumps(build_links(state), ensure_ascii=False).encode("utf-8"))
+    # Versions before 1.0.0 beta 4 kept the addresses where anyone could read them.
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(os.path.join(paths.ui, "links.json"))
     _write_atomic(paths.config, json.dumps(config, ensure_ascii=False, indent=2).encode("utf-8"))
     for name in os.listdir(paths.images):
         if name not in wanted and not name.startswith("cattport_"):
@@ -392,7 +533,8 @@ def publish(paths, restarted=False):
     if restarted:
         state["deployed"] = _tile_snapshot(state)
     save_state(paths, state)
-    return {"ids": sorted(config.get(".url", {})), "state": public_state(paths, state)}
+    return {"ids": sorted(config.get(".url", {})), "rules": privilege_rules(state), "fingerprint": _rules_fingerprint(state),
+            "state": public_state(paths, state)}
 
 
 def public_state(paths, state=None):
@@ -421,7 +563,7 @@ def export_data(paths):
         icons = {}
         for size in ICON_SIZES:
             icons[str(size)] = base64.b64encode(_icon_bytes(paths, app, size)).decode("ascii")
-        apps.append({"app": {name: app.get(name) for name in ("name", "url", "external", "desc", "allUsers", "hidden", "follow")}, "icons": icons})
+        apps.append({"app": {name: app.get(name) for name in ("name", "url", "external", "desc", "audience", "allUsers", "people", "hidden", "follow")}, "icons": icons})
     return {"format": "cattport-backup", "schema": SCHEMA, "apps": apps}
 
 
@@ -430,18 +572,25 @@ def import_data(paths, payload):
     backup = payload.get("backup")
     if not isinstance(backup, dict) or backup.get("format") != "cattport-backup" or not isinstance(backup.get("apps"), list):
         raise ApiError("invalid_backup")
-    if backup.get("schema", 1) > SCHEMA:
+    schema = backup.get("schema", 1)
+    if not isinstance(schema, int):
+        raise ApiError("invalid_backup")
+    if schema > SCHEMA:
         raise ApiError("newer_data")
     if len(backup["apps"]) > MAX_APPS:
         raise ApiError("too_many_apps")
+    if not all(isinstance(item, dict) for item in backup["apps"]):
+        raise ApiError("invalid_backup")
     items = [(validate_app(item.get("app")), decode_icons(item.get("icons"))) for item in backup["apps"]]
     state = load_state(paths)
     names = {app["name"].lower() for app in state["apps"]}
+    # Counted before any icon is written, so a backup that doesn't fit leaves nothing behind.
+    new_names = {fields["name"].lower() for fields, _ in items} - names
+    if len(state["apps"]) + len(new_names) > MAX_APPS:
+        raise ApiError("too_many_apps")
     for fields, icons in items:
         if fields["name"].lower() in names:
             continue
-        if len(state["apps"]) >= MAX_APPS:
-            raise ApiError("too_many_apps")
         app = dict(fields, key=make_key(fields["name"], [item["key"] for item in state["apps"]]))
         _store_icons(paths, app, icons)
         state["apps"].append(app)
@@ -644,7 +793,7 @@ def internet_icons(paths, payload):
     return {"results": _run(tasks)}
 
 
-CHANGES_DATA = {"save_app", "delete_app", "undo_delete", "save_settings", "publish", "import"}
+CHANGES_DATA = {"save_app", "delete_app", "undo_delete", "save_settings", "publish", "import", "rules_applied"}
 
 
 @contextlib.contextmanager
@@ -676,6 +825,8 @@ def _dispatch(paths, action, payload):
         return save_settings(paths, payload)
     if action == "publish":
         return publish(paths)
+    if action == "rules_applied":
+        return rules_applied(paths, payload)
     if action == "icon":
         return icon_preview(paths, payload)
     if action == "export":

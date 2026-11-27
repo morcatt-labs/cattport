@@ -32,6 +32,15 @@ Thanks for trying Cattport. A short report is useful even if everything works. P
 - [ ] A non-administrator doesn't see Only admins tiles
 - [ ] Hide removes a tile for everyone
 - [ ] Deleting a tile removes it for everyone after saving
+- [ ] Chosen people: only the chosen user (or a member of the chosen group) sees the tile after reloading DSM
+- [ ] Everyone with an exception: the left-out user doesn't see the tile, others do
+- [ ] Control Panel → Application Privileges shows the rules Cattport set for those tiles
+- [ ] A user who isn't allowed gets "You don't have access" when opening the tile's link directly
+
+**Package source**
+- [ ] Package Center → Settings → Package Sources accepts `https://morcatt-labs.github.io/cattport/`
+- [ ] Cattport appears under Community and installs from there
+- [ ] A newer version shows up as an update in Package Center
 
 **Uninstall**
 - [ ] Keep data: your apps come back after reinstalling

@@ -26,6 +26,9 @@ for size in build_spk.ICON_SIZES:
 PATHS = core.Paths(str(WORK / "target"), str(WORK / "var"))
 DOCKER = os.environ.get("DOCKER", "running")
 AUTH = "ok"
+RULES = []
+# Who open.html sees as signed in: ?as=<user> on /dev/user/<name>.
+PERSON = {"user": "admin", "groups": ["administrators"], "admin": True}
 CONTAINERS = [
     {"name": "jellyfin", "status": "running", "port_bindings": [{"host_port": 8096}]},
     {"name": "paperless_web", "status": "running", "port_bindings": [{"host_port": 8000}]},
@@ -56,6 +59,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             _, _, kind, value = self.path.split("/")
             if kind == "docker":
                 DOCKER = value
+            elif kind == "user":
+                PERSON.update(user=value, groups=["users"], admin=value == "admin")
             else:
                 AUTH = value
             return self.send_json({"ok": True})
@@ -75,6 +80,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if DOCKER != "running":
                     return self.send_json({"success": False, "error": {"code": 102}})
                 data = {"containers": CONTAINERS} if method == "list" else {"details": {}, "profile": {}}
+            elif api == "SYNO.Core.User":
+                data = {"users": [{"name": name} for name in ("admin", "anna", "bogdan", "elena", "guest")]}
+            elif api == "SYNO.Core.Group":
+                data = {"groups": [{"name": name} for name in ("administrators", "family", "kids", "users")]}
+            elif api.startswith("SYNO.Core.AppPriv"):
+                RULES.append(form)
+                data = {}
             elif api == "SYNO.Core.System":
                 data = {"firmware_ver": "DSM 7.4.1-90080"}
             elif api == "SYNO.FileStation.Search":
@@ -90,6 +102,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.send_json({"success": False, "error": AUTH})
         request = json.loads(body)
         try:
+            if request["action"] == "open":
+                return self.send_json({"success": True, "data": core.open_link(PATHS, request, PERSON)})
+            if not PERSON["admin"]:
+                return self.send_json({"success": False, "error": "not_admin"})
             return self.send_json({"success": True, "data": core.handle(PATHS, request["action"], request)})
         except core.ApiError as error:
             return self.send_json({"success": False, "error": str(error)})

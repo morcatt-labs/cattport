@@ -24,12 +24,13 @@
   let suggestTimer = null;
   let statusTimer = null;
   let diagnostics = [];
+  let accounts = null;
 
   /* Text */
 
   function t(key, values) {
     let text = (TEXT[lang] && TEXT[lang][key]) || TEXT.en[key] || key;
-    Object.entries(values || {}).forEach(([name, value]) => { text = text.replace("{" + name + "}", value); });
+    Object.entries(values || {}).forEach(([name, value]) => { text = text.replace("{" + name + "}", () => String(value)); });
     return text;
   }
 
@@ -149,6 +150,7 @@
     if (status === "saving") return showStatus(t("status.publishing"), null, true);
     if (status === "saved") return showStatus(t("status.published"));
     if (status === "reload") return showStatus(t("status.reload"), reloadAction(), true);
+    if (status === "privileges") return showStatus(t("status.privileges"), { label: t("status.retry"), run: saveToDsm }, true);
     renderSaveBar();
     return showStatus(t("status.failed"), { label: t("status.retry"), run: saveToDsm }, true);
   }
@@ -206,12 +208,29 @@
       const image = el("img", { alt: "" });
       iconFor(app, image);
       const noDomain = !app.hidden && !app.external && onDomain();
-      const note = app.hidden ? t("apps.hidden") : noDomain ? t("apps.noDomain") : t(app.allUsers ? "apps.everyone" : "apps.admins");
+      const note = app.hidden ? t("apps.hidden") : noDomain ? t("apps.noDomain") : audienceNote(app);
       const tile = el("button", { className: "tile" + (app.hidden ? " off" : ""), type: "button", onclick: () => openEditor(app) }, [
         image, el("b", { textContent: app.name }), el("small", { textContent: note }),
       ]);
       list.append(el("li", {}, [tile]));
     });
+  }
+
+  function audienceOf(app) {
+    if (app.audience === "admins" || app.audience === "everyone" || app.audience === "people") return app.audience;
+    return app.allUsers ? "everyone" : "admins";
+  }
+
+  function countPeople(people) {
+    return ((people && people.users) || []).length + ((people && people.groups) || []).length;
+  }
+
+  function audienceNote(app) {
+    const who = audienceOf(app);
+    const count = countPeople(app.people);
+    if (who === "people") return t("apps.people", { n: count });
+    if (who === "everyone" && count) return t("apps.everyoneExcept");
+    return t(who === "everyone" ? "apps.everyone" : "apps.admins");
   }
 
   function showScreen(name) {
@@ -568,8 +587,98 @@
   }
 
   function setAudience(value) {
-    draft.everyone = value === "everyone";
+    draft.audience = value;
     $("audience").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.value === value)));
+    renderPeople();
+  }
+
+  /* People: "Everyone" can leave some out, "Chosen people" lists who sees the app. */
+
+  function draftPeople() {
+    return draft.audience === "people" ? draft.only : draft.except;
+  }
+
+  function renderPeople() {
+    const line = $("people-line");
+    line.hidden = draft.audience === "admins";
+    if (line.hidden) return;
+    $("people-label").textContent = t(draft.audience === "people" ? "people.only" : "people.except");
+    const people = draftPeople();
+    const chip = (name, kind) => {
+      const label = kind === "groups" ? t("people.group", { name: name }) : name;
+      const button = el("button", { type: "button", textContent: label, title: t("people.remove", { name: label }), onclick: () => {
+        people[kind] = people[kind].filter((item) => item !== name);
+        draft.touched = true;
+        renderPeople();
+      } });
+      button.setAttribute("aria-label", t("people.remove", { name: label }));
+      button.setAttribute("role", "listitem");
+      return button;
+    };
+    $("people").replaceChildren(...people.users.map((name) => chip(name, "users")), ...people.groups.map((name) => chip(name, "groups")));
+    $("people-add").textContent = t(countPeople(people) ? "people.change" : "people.choose");
+  }
+
+  async function loadAccounts() {
+    if (accounts) return accounts;
+    const names = (data, field) => (data[field] || []).map((item) => item.name).filter((name) => typeof name === "string" && name);
+    const [users, groups] = await Promise.all([
+      webapi({ api: "SYNO.Core.User", version: "1", method: "list", type: "local", offset: "0", limit: "-1" }).then((data) => names(data, "users")).catch(() => null),
+      webapi({ api: "SYNO.Core.Group", version: "1", method: "list", type: "local", offset: "0", limit: "-1" }).then((data) => names(data, "groups")).catch(() => null),
+    ]);
+    // Administrators always see every app, so their group can't be chosen.
+    const result = { users: users, groups: groups && groups.filter((name) => name !== "administrators") };
+    if (users && groups) accounts = result;
+    return result;
+  }
+
+  function togglePerson(kind, name, on) {
+    const people = draftPeople();
+    const list = people[kind].filter((item) => item !== name);
+    if (on) list.push(name);
+    list.sort((a, b) => a.localeCompare(b));
+    people[kind] = list;
+    draft.touched = true;
+    renderPeople();
+  }
+
+  function renderPeopleList(found) {
+    const list = $("people-list");
+    const filter = $("people-filter").value.trim().toLowerCase();
+    const people = draftPeople();
+    const rows = [];
+    [["users", "people.users"], ["groups", "people.groups"]].forEach(([kind, title]) => {
+      // Names added by hand stay listed, so they can be unticked here too.
+      const names = Array.from(new Set((found[kind] || []).concat(people[kind]))).filter((name) => name.toLowerCase().includes(filter)).sort((a, b) => a.localeCompare(b));
+      if (!names.length) return;
+      rows.push(el("li", { className: "section", textContent: t(title) }));
+      names.forEach((name) => {
+        const box = el("input", { type: "checkbox", checked: people[kind].includes(name) });
+        box.addEventListener("change", () => togglePerson(kind, name, box.checked));
+        rows.push(el("li", {}, [el("label", {}, [box, el("span", { className: "grow" }, [el("b", { textContent: name })])])]));
+      });
+    });
+    if (!rows.length) rows.push(el("li", { className: "note", textContent: t(found.users || found.groups ? "people.none" : "people.unreadable") }));
+    list.replaceChildren(...rows);
+  }
+
+  async function openPeople() {
+    $("people-title").textContent = t(draft.audience === "people" ? "people.titleOnly" : "people.titleExcept");
+    $("people-filter").value = "";
+    $("people-name").value = "";
+    $("people-list").replaceChildren(el("li", { className: "note", textContent: t("files.loading") }));
+    $("people-sheet").showModal();
+    const found = await loadAccounts();
+    $("people-filter").oninput = () => renderPeopleList(found);
+    renderPeopleList(found);
+  }
+
+  function addPersonByName() {
+    const name = $("people-name").value.trim();
+    if (!name) return;
+    $("people-name").value = "";
+    togglePerson("users", name, true);
+    renderPeopleList(accounts || { users: [], groups: [] });
   }
 
   function iconError(text) {
@@ -586,7 +695,11 @@
     closeAll();
     suggestRun++;
     const url = app ? app.url : container && container.webPorts.length ? serviceUrl(container.webPorts[0]) : "";
-    draft = { key: app ? app.key : null, container: container || null, icon: null, iconChanged: false, touched: false, follow: app ? !!app.follow : !!container, originalUrl: url, everyone: false, prints: [] };
+    const people = (app && app.people) || {};
+    const copy = () => ({ users: (people.users || []).slice(), groups: (people.groups || []).slice() });
+    const who = app ? audienceOf(app) : "admins";
+    draft = { key: app ? app.key : null, container: container || null, icon: null, iconChanged: false, touched: false, follow: app ? !!app.follow : !!container, originalUrl: url, audience: who, prints: [],
+      only: who === "people" ? copy() : { users: [], groups: [] }, except: who === "everyone" ? copy() : { users: [], groups: [] } };
     $("edit-title").textContent = t(app ? "edit.titleEdit" : "edit.titleNew");
     $("f-name").value = app ? app.name : container ? friendlyName(container.name) : "";
     $("f-url").value = url;
@@ -604,7 +717,7 @@
     $("preview").classList.remove("searching");
     $("edit-warn").hidden = true;
     editError("");
-    setAudience(app && app.allUsers ? "everyone" : "admins");
+    setAudience(who);
     const ports = $("ports");
     ports.replaceChildren();
     ((container && container.webPorts.length > 1 && container.webPorts) || []).forEach((port) => {
@@ -701,6 +814,7 @@
     editError("");
     const name = $("f-name").value.trim();
     if (!name) { editError(t("edit.needName")); return; }
+    if (draft.audience === "people" && !countPeople(draft.only)) { editError(t("edit.needPeople")); return; }
     const save = $("save-app");
     save.disabled = true;
     try {
@@ -713,7 +827,7 @@
       try { follow = draft.follow && (url === draft.originalUrl || new URL(url).hostname === location.hostname); } catch (ignored) { /* the server reports the bad address */ }
       state = await api("save_app", {
         key: draft.key,
-        app: { name: name, url: url, external: $("f-external").value.trim(), allUsers: draft.everyone, hidden: $("f-hidden").checked, follow: follow },
+        app: { name: name, url: url, external: $("f-external").value.trim(), audience: draft.audience, allUsers: draft.audience !== "admins", people: draft.audience === "admins" ? null : draftPeople(), hidden: $("f-hidden").checked, follow: follow },
         icons: draft.iconChanged ? await rasterize(draft.icon) : null,
       });
       suggestRun++;
@@ -984,6 +1098,9 @@
     $("delete-app").addEventListener("click", deleteApp);
     $("audience").querySelectorAll("button").forEach((button) => button.addEventListener("click", () => { draft.touched = true; setAudience(button.dataset.value); }));
     $("preview").addEventListener("click", () => { iconError(""); $("icon-sheet").showModal(); });
+    $("people-add").addEventListener("click", openPeople);
+    $("people-name-add").addEventListener("click", addPersonByName);
+    $("people-name").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addPersonByName(); } });
     $("pick-pc").addEventListener("click", () => $("pc-file").click());
     $("pc-file").addEventListener("change", async () => {
       const file = $("pc-file").files[0];

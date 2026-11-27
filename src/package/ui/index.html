@@ -158,7 +158,13 @@
       <div class="segments" id="audience" role="group" data-i18n-label="edit.audience">
         <button type="button" data-value="admins" data-i18n="edit.admins"></button>
         <button type="button" data-value="everyone" data-i18n="edit.everyone"></button>
+        <button type="button" data-value="people" data-i18n="edit.people"></button>
       </div>
+    </div>
+    <div class="line people-line" id="people-line" hidden>
+      <span id="people-label"></span>
+      <div class="chips people" id="people" role="list"></div>
+      <button class="btn soft" id="people-add" type="button" data-i18n="people.choose"></button>
     </div>
     <label class="line toggle"><span data-i18n="edit.hide"></span><input id="f-hidden" type="checkbox" role="switch"></label>
     </div>
@@ -184,6 +190,15 @@
   </div>
   <span class="inline"><input id="icon-url" type="url" data-i18n-placeholder="edit.iconUrl" data-i18n-label="edit.iconUrl"><button class="btn soft" id="icon-url-go" type="button" data-i18n="edit.use"></button></span>
   <p class="error" id="icon-error" role="alert" hidden></p>
+</dialog>
+
+<dialog class="sheet" id="people-sheet">
+  <header class="sheet-head"><h2 class="grow" id="people-title"></h2><button class="close" type="button" data-close data-i18n-label="common.close">×</button></header>
+  <label class="search wide"><span class="sr" data-i18n="apps.search"></span><input id="people-filter" type="search" data-i18n-placeholder="apps.search"></label>
+  <ul class="rows" id="people-list"></ul>
+  <span class="inline"><input id="people-name" autocomplete="off" data-i18n-placeholder="people.byName" data-i18n-label="people.byName"><button class="btn soft" id="people-name-add" type="button" data-i18n="people.add"></button></span>
+  <p class="hint" data-i18n="people.adminsNote"></p>
+  <footer class="foot"><span class="grow"></span><button class="btn primary big" type="button" data-close data-i18n="people.done"></button></footer>
 </dialog>
 
 <dialog class="sheet" id="fs-sheet">

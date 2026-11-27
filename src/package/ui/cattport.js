@@ -49,12 +49,12 @@ Ext.ns("labs.morcatt.cattport");
     }
   }
 
-  async function api(action) {
+  async function api(action, payload) {
     const response = await fetch(BASE + "api.cgi", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json", "X-SYNO-TOKEN": token() },
-      body: JSON.stringify({ action: action })
+      body: JSON.stringify(Object.assign({ action: action }, payload || {}))
     });
     const result = await response.json();
     if (!result.success) throw new Error(result.error || "internal");
@@ -103,22 +103,65 @@ Ext.ns("labs.morcatt.cattport");
 
   NS.restartAndReopen = restartAndReopen;
 
+  // Who sees a tile limited to people: DSM's Application Privileges, written with the administrator's session.
+  // "Everyone except" allows the group every local user is in, then denies the exceptions; a deny wins in DSM.
+  const ALL_IPS = ["0.0.0.0"];
+
+  function wantedRules(id, rule) {
+    const allow = (type, name) => ({ entity_type: type, entity_name: name, app_id: id, allow_ip: ALL_IPS, deny_ip: [] });
+    const deny = (type, name) => ({ entity_type: type, entity_name: name, app_id: id, allow_ip: [], deny_ip: ALL_IPS });
+    if (rule.mode !== "people" && rule.mode !== "everyone") return [];
+    const make = rule.mode === "people" ? allow : deny;
+    const rules = rule.users.map((name) => make("user", name)).concat(rule.groups.map((name) => make("group", name)));
+    if (rule.mode === "everyone") rules.push(allow("group", "users"));
+    return rules;
+  }
+
+  const sameEntity = (a, b) => a.entity_type === b.entity_type && String(a.entity_name).toLowerCase() === String(b.entity_name).toLowerCase();
+  const sameRule = (a, b) => sameEntity(a, b) && JSON.stringify(a.allow_ip || []) === JSON.stringify(b.allow_ip || []) && JSON.stringify(a.deny_ip || []) === JSON.stringify(b.deny_ip || []);
+
+  async function applyRules(rules) {
+    let ok = true;
+    for (const id of Object.keys(rules || {})) {
+      const wanted = wantedRules(id, rules[id]);
+      const listed = await webapi({ api: "SYNO.Core.AppPriv.Rule", version: "1", method: "list", app_id: JSON.stringify(id) });
+      // An admins-only tile DSM has no privileges for has nothing to clean up.
+      if (!listed.success) { if (wanted.length) ok = false; continue; }
+      // Rules left from an earlier choice would still let those people in.
+      const stale = ((listed.data && listed.data.rules) || []).filter((rule) => !wanted.some((want) => sameRule(want, rule)))
+        .map((rule) => ({ entity_type: rule.entity_type, entity_name: rule.entity_name, app_id: id, allow_ip: rule.allow_ip || [], deny_ip: rule.deny_ip || [] }));
+      if (stale.length) {
+        const removed = await webapi({ api: "SYNO.Core.AppPriv.Rule", version: "1", method: "delete", rules: JSON.stringify(stale) });
+        if (!removed.success) ok = false;
+      }
+      if (!wanted.length) continue;
+      const set = await webapi({ api: "SYNO.Core.AppPriv.Rule", version: "1", method: "set", rules: JSON.stringify(wanted) });
+      if (!set.success) ok = false;
+    }
+    return ok;
+  }
+
   NS.saveToDsm = async function () {
     if (running) return;
     running = true;
     notify("saving");
     try {
       const known = Object.keys(fnMap()).filter((id) => id.startsWith(TILES));
-      const { ids } = await api("publish");
+      const { ids, rules, fingerprint } = await api("publish");
       if (!(await restartAndReopen())) {
         notify("failed");
         return;
       }
+      // After the restart, so DSM already knows the new tiles. If this fails, those tiles stay for admins only.
+      let rulesSaved = true;
+      try { rulesSaved = await applyRules(rules); } catch (error) { rulesSaved = false; }
+      // Until DSM has the rules, Cattport keeps counting the change as unsaved.
+      if (rulesSaved && fingerprint) await api("rules_applied", { fingerprint: fingerprint }).catch(() => {});
       if (typeof SYNO.SDS.reloadJSConfig === "function") SYNO.SDS.reloadJSConfig();
       // The reopened window needs a moment to start listening again.
       const inMenu = await waitForMenu(ids, known);
       await sleep(800);
-      notify(inMenu ? "saved" : "reload");
+      notify(!rulesSaved ? "privileges" : inMenu ? "saved" : "reload");
     } catch (error) {
       notify("failed");
     } finally {

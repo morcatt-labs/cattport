@@ -54,7 +54,9 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(result["ids"], [tile])
         self.assertEqual(result["state"]["pending"], 0)
         config = self.config()
-        self.assertEqual(config[".url"][tile]["url"], "http://nas.local:2283")
+        # The address stays out of DSM's files: the tile goes through the opener.
+        self.assertEqual(config[".url"][tile]["url"], "webman/3rdparty/Cattport/open.html?app=Immich")
+        self.assertNotIn("nas.local", json.dumps(config))
         self.assertFalse(config[".url"][tile]["allUsers"])
         self.assertFalse(config["cattport.js"][core.NAMESPACE + ".Instance"]["allUsers"])
 
@@ -65,16 +67,19 @@ class CoreTest(unittest.TestCase):
         entries = self.config()["cattport.js"]
         self.assertEqual({entry["version"] for entry in entries.values()}, {"9.9"})
 
+    def opened(self, key="Immich", user="anna", groups=(), admin=False):
+        return core.open_link(self.paths, {"key": key}, {"user": user, "groups": list(groups), "admin": admin})
+
     def test_follow_tile_uses_dsm_address(self):
         self.add(url="http://192.168.1.2:2283", follow=True)
         core.publish(self.paths)
-        entry = self.config()[".url"][core.TILE_PREFIX + "Immich"]
-        self.assertEqual((entry["url"], entry["port"], entry["protocol"]), ("/", 2283, "http"))
+        link = self.opened(admin=True)
+        self.assertEqual((link["port"], link["protocol"]), (2283, "http"))
 
     def test_follow_is_ignored_for_a_path(self):
         self.add(url="http://192.168.1.2:2283/photos", follow=True)
         core.publish(self.paths)
-        self.assertEqual(self.config()[".url"][core.TILE_PREFIX + "Immich"]["url"], "http://192.168.1.2:2283/photos")
+        self.assertEqual(self.opened(admin=True), {"url": "http://192.168.1.2:2283/photos", "external": ""})
 
     def test_hidden_app_has_no_tile(self):
         self.add(hidden=True)
@@ -279,8 +284,177 @@ class CoreTest(unittest.TestCase):
         entry = self.config()[".url"][core.TILE_PREFIX + "Jellyfin"]
         self.assertEqual(entry["url"], "webman/3rdparty/Cattport/open.html?app=Jellyfin")
         self.assertNotIn("port", entry)
-        link = json.loads(Path(self.paths.ui, "links.json").read_text())["Jellyfin"]
+        link = self.opened("Jellyfin", admin=True)
         self.assertEqual((link["external"], link["port"], link["protocol"]), ("https://cinema.example.com", 1802, "http"))
+        # Nothing about where tiles go is left where anyone could download it.
+        self.assertFalse(Path(self.paths.ui, "links.json").exists())
+
+    def test_old_public_links_file_is_removed(self):
+        Path(self.paths.ui, "links.json").write_text("{}")
+        core.publish(self.paths)
+        self.assertFalse(Path(self.paths.ui, "links.json").exists())
+
+    def test_admins_only_tile_opens_only_for_admins(self):
+        self.add()
+        core.publish(self.paths)
+        self.assertEqual(self.opened(admin=True)["url"], "http://nas.local:2283")
+        with self.assertRaisesRegex(core.ApiError, "not_allowed"):
+            self.opened(user="anna", groups=["users"])
+
+    def test_everyone_tile_opens_for_everyone(self):
+        self.add(audience="everyone")
+        core.publish(self.paths)
+        self.assertEqual(self.opened(user="anna", groups=["users"])["url"], "http://nas.local:2283")
+        entry = self.config()[".url"][core.TILE_PREFIX + "Immich"]
+        self.assertTrue(entry["allUsers"])
+        self.assertNotIn("grantPrivilege", entry)
+
+    def test_chosen_people_see_and_open_the_tile(self):
+        self.add(audience="people", people={"users": ["Anna"], "groups": ["family"]})
+        result = core.publish(self.paths)
+        entry = self.config()[".url"][core.TILE_PREFIX + "Immich"]
+        self.assertFalse(entry["allUsers"])
+        self.assertEqual(entry["grantPrivilege"], "all")
+        self.assertEqual(result["rules"], {core.TILE_PREFIX + "Immich": {"mode": "people", "users": ["Anna"], "groups": ["family"]}})
+        self.assertTrue(self.opened(user="anna"))
+        self.assertTrue(self.opened(user="bob", groups=["users", "Family"]))
+        with self.assertRaisesRegex(core.ApiError, "not_allowed"):
+            self.opened(user="bob", groups=["users"])
+        self.assertTrue(self.opened(user="bob", admin=True))
+
+    def test_everyone_except_some_people(self):
+        self.add(audience="everyone", people={"users": ["bob"], "groups": ["kids"]})
+        result = core.publish(self.paths)
+        self.assertEqual(result["rules"][core.TILE_PREFIX + "Immich"]["mode"], "everyone")
+        self.assertEqual(self.config()[".url"][core.TILE_PREFIX + "Immich"]["grantPrivilege"], "all")
+        self.assertTrue(self.opened(user="anna", groups=["users"]))
+        for user, groups in (("bob", ["users"]), ("carl", ["users", "kids"])):
+            with self.assertRaisesRegex(core.ApiError, "not_allowed"):
+                self.opened(user=user, groups=groups)
+
+    def test_tiles_without_people_clear_earlier_privileges(self):
+        self.add(audience="everyone", people={"users": ["bob"]})
+        self.add("Grafana", audience="people", people={"users": ["anna"]})
+        self.add("Old", audience="people", people={"users": ["anna"]})
+        core.publish(self.paths, restarted=True)
+        core.save_app(self.paths, {"key": "Immich", "app": {"name": "Immich", "url": "http://nas.local:2283", "audience": "everyone"}})
+        core.save_app(self.paths, {"key": "Grafana", "app": {"name": "Grafana", "url": "http://nas.local:2283", "audience": "admins"}})
+        core.delete_app(self.paths, {"key": "Old"})
+        rules = core.publish(self.paths)["rules"]
+        none = {"mode": "none", "users": [], "groups": []}
+        self.assertEqual(rules, {core.TILE_PREFIX + key: none for key in ("Immich", "Grafana", "Old")})
+
+    def test_unwritten_privileges_stay_unsaved(self):
+        self.add(audience="people", people={"users": ["anna"]})
+        result = core.publish(self.paths, restarted=True)
+        self.assertEqual(result["state"]["pending"], 1)
+        self.assertEqual(core.rules_applied(self.paths, {"fingerprint": "stale"})["pending"], 1)
+        self.assertEqual(core.handle(self.paths, "rules_applied", {"fingerprint": result["fingerprint"]})["pending"], 0)
+        # Plain tiles need no privileges at all.
+        core.save_app(self.paths, {"key": "Immich", "app": {"name": "Immich", "url": "http://nas.local:2283", "audience": "everyone"}})
+        result = core.publish(self.paths, restarted=True)
+        self.assertEqual((result["fingerprint"], result["state"]["pending"]), ("", 0))
+
+    def test_everyone_except_leaves_out_accounts_dsm_leaves_out(self):
+        self.add(audience="everyone", people={"users": ["bob"], "groups": ["CORP\\Sales"]})
+        core.publish(self.paths)
+        # A domain account isn't in the local "users" group, which is all DSM allows here.
+        with self.assertRaisesRegex(core.ApiError, "not_allowed"):
+            self.opened(user="CORP\\eve", groups=["CORP\\Domain Users"])
+
+    def test_old_unsafe_names_are_cleaned_for_dsm(self):
+        Path(self.paths.state).write_text(json.dumps({"apps": [{"key": "A", "name": "<b>A</b>", "desc": 'x"y', "url": "http://a", "allUsers": True}]}))
+        entry = core.tile_entry(core.load_state(self.paths)["apps"][0])
+        self.assertEqual((entry["title"], entry["desc"]), ("bA/b", "xy"))
+
+    def test_people_are_unique_whatever_the_case(self):
+        state = self.add(audience="people", people={"users": ["anna", "Anna"]})
+        self.assertEqual(state["apps"][0]["people"]["users"], ["anna"])
+
+    def test_chosen_people_need_someone(self):
+        with self.assertRaisesRegex(core.ApiError, "people_required"):
+            self.add(audience="people", people={"users": [], "groups": []})
+
+    def test_admins_only_drops_the_people(self):
+        state = self.add(audience="admins", people={"users": ["anna"], "groups": []})
+        self.assertEqual(state["apps"][0]["people"], {"users": [], "groups": []})
+        self.assertFalse(state["apps"][0]["allUsers"])
+
+    def test_bad_people_are_refused(self):
+        for people in ({"users": ["<b>x</b>"]}, {"users": "anna"}, {"groups": [1]}, {"users": [""]}, {"users": [" anna"]}, ["anna"],
+                       {"users": ["u%d" % index for index in range(core.MAX_PEOPLE + 1)]}):
+            with self.assertRaisesRegex(core.ApiError, "invalid_people", msg=people):
+                self.add(audience="people", people=people)
+
+    def test_domain_and_ldap_accounts_are_accepted(self):
+        state = self.add(audience="people", people={"users": ["CORP\\anna", "bob@ldap.example"], "groups": ["Domain Users"]})
+        self.assertEqual(state["apps"][0]["people"]["users"], ["bob@ldap.example", "CORP\\anna"])
+
+    def test_old_apps_keep_their_audience(self):
+        Path(self.paths.state).write_text(json.dumps({"apps": [
+            {"key": "A", "name": "A", "url": "http://a", "allUsers": True},
+            {"key": "B", "name": "B", "url": "http://b", "allUsers": False}]}))
+        for size in core.ICON_SIZES:
+            Path(self.paths.images, "cattport_%d.png" % size).write_bytes(base64.b64decode(ICONS[str(size)]))
+        core.publish(self.paths)
+        tiles = self.config()[".url"]
+        self.assertTrue(tiles[core.TILE_PREFIX + "A"]["allUsers"])
+        self.assertFalse(tiles[core.TILE_PREFIX + "B"]["allUsers"])
+        self.assertTrue(self.opened("A", user="anna"))
+        with self.assertRaises(core.ApiError):
+            self.opened("B", user="anna")
+
+    def test_hidden_or_unsaved_tiles_do_not_open(self):
+        self.add(audience="everyone", hidden=True)
+        self.add("Grafana", audience="everyone")
+        core.publish(self.paths)
+        self.add("Later", audience="everyone")
+        for key in ("Immich", "Later", "../apps", "__proto__", None, ["Grafana"]):
+            with self.assertRaisesRegex(core.ApiError, "app_gone", msg=key):
+                self.opened(key, admin=True)
+        self.assertTrue(self.opened("Grafana"))
+
+    def test_changing_who_sees_a_tile_needs_saving(self):
+        self.add(audience="people", people={"users": ["anna"]})
+        core.publish(self.paths, restarted=True)
+        state = core.save_app(self.paths, {"key": "Immich", "app": {"name": "Immich", "url": "http://nas.local:2283", "audience": "people", "people": {"users": ["anna", "bob"]}}})
+        self.assertEqual(state["pending"], 1)
+
+    def test_markup_in_names_is_refused(self):
+        for name in ("<img src=x onerror=alert(1)>", 'Say "hi"', "a`b", "tab\there"):
+            with self.assertRaisesRegex(core.ApiError, "unsafe_text", msg=name):
+                self.add(name=name)
+        with self.assertRaisesRegex(core.ApiError, "unsafe_text"):
+            self.add(desc="<script>")
+        self.assertEqual(self.add(name="Tom & Jerry's")["apps"][0]["name"], "Tom & Jerry's")
+
+    def test_long_or_odd_addresses_are_refused(self):
+        for url in ("http://a/" + "x" * core.MAX_URL, 'http://a/"><script>', "http://a b/", "http://a/\x00"):
+            with self.assertRaisesRegex(core.ApiError, "invalid_url", msg=url):
+                self.add(url=url)
+        with self.assertRaisesRegex(core.ApiError, "invalid_url"):
+            self.add(external="https://x/<svg>")
+
+    def test_import_that_does_not_fit_leaves_no_icons(self):
+        state = core.load_state(self.paths)
+        state["apps"] = [{"key": "K%d" % index, "name": "K%d" % index, "url": "http://a"} for index in range(core.MAX_APPS - 1)]
+        core.save_state(self.paths, state)
+        backup = {"format": "cattport-backup", "apps": [{"app": {"name": n, "url": "http://a"}, "icons": ICONS} for n in ("X", "Y")]}
+        with self.assertRaisesRegex(core.ApiError, "too_many_apps"):
+            core.import_data(self.paths, {"backup": backup})
+        self.assertFalse(Path(self.paths.icons).exists())
+
+    def test_import_refuses_odd_shapes(self):
+        for backup in ({"format": "cattport-backup", "schema": "2", "apps": []}, {"format": "cattport-backup", "apps": ["x"]}):
+            with self.assertRaisesRegex(core.ApiError, "invalid_backup"):
+                core.import_data(self.paths, {"backup": backup})
+
+    def test_export_keeps_who_sees_each_app(self):
+        self.add(audience="people", people={"users": ["anna"], "groups": ["family"]})
+        backup = json.loads(json.dumps(core.export_data(self.paths)))
+        core.delete_app(self.paths, {"key": "Immich"})
+        app = core.import_data(self.paths, {"backup": backup})["apps"][0]
+        self.assertEqual((app["audience"], app["people"]), ("people", {"users": ["anna"], "groups": ["family"]}))
 
     def test_changing_only_the_outside_address_needs_publishing(self):
         self.add(external="https://a.example.com")
@@ -373,6 +547,164 @@ class FetchTest(unittest.TestCase):
             core.docker_icons({"ports": ["1;rm"], "labels": {}})
 
 
+def load_api():
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("cattport_api", str(ROOT / "src" / "package" / "ui" / "api.cgi"))
+    spec = importlib.util.spec_from_loader("cattport_api", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+class ApiTest(unittest.TestCase):
+    """api.cgi with DSM's sign-in replaced: who is signed in decides what may be done."""
+
+    def setUp(self):
+        self.api = load_api()
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.paths = core.Paths(os.path.join(self.temp.name, "target"), os.path.join(self.temp.name, "var"))
+        os.makedirs(self.paths.images)
+        Path(self.paths.images, "cattport_16.png").write_bytes(b"x")
+        core.save_app(self.paths, {"app": {"name": "Immich", "url": "http://nas.local:2283", "audience": "people", "people": {"users": ["anna"]}}, "icons": ICONS})
+        core.publish(self.paths)
+        self.user = "admin"
+        self.groups = {"admin": ["administrators", "users"], "anna": ["users"], "bob": ["users"]}
+        self.api.signed_in_user = lambda: self.user
+        self.api.groups_of = lambda user: self.groups.get(user, [])
+        from unittest import mock
+        original = core.Paths
+        patcher = mock.patch.object(self.api.core, "Paths", lambda *args: original(*args) if args else self.paths)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def call(self, body, method="POST", origin=None, kind="application/json"):
+        data = json.dumps(body).encode()
+        env = {"REQUEST_METHOD": method, "CONTENT_TYPE": kind, "CONTENT_LENGTH": str(len(data)), "HTTP_HOST": "nas:5001"}
+        if origin:
+            env["HTTP_ORIGIN"] = origin
+        out = io.BytesIO()
+        stdin = io.TextIOWrapper(io.BytesIO(data))
+        old = (dict(os.environ), sys.stdin, sys.stdout)
+        os.environ.clear()
+        os.environ.update(env)
+        sys.stdin, sys.stdout = stdin, io.TextIOWrapper(out)
+        try:
+            self.api.main()
+            sys.stdout.flush()
+            value = out.getvalue()
+        finally:
+            os.environ.clear()
+            os.environ.update(old[0])
+            sys.stdin, sys.stdout = old[1], old[2]
+        head, _, payload = value.partition(b"\r\n\r\n")
+        return head.split(b"\r\n")[0].decode(), json.loads(payload)
+
+    def test_admin_reads_state(self):
+        status, body = self.call({"action": "state"})
+        self.assertEqual(status, "Status: 200 OK")
+        self.assertTrue(body["success"])
+
+    def test_signed_out_is_refused(self):
+        self.user = None
+        self.assertEqual(self.call({"action": "open", "key": "Immich"})[1]["error"], "session")
+
+    def test_regular_user_can_only_open(self):
+        self.user = "bob"
+        for action in ("state", "save_app", "publish", "export", "fetch_image", "check_address"):
+            status, body = self.call({"action": action})
+            self.assertEqual((status, body["error"]), ("Status: 403 Forbidden", "not_admin"), action)
+        self.assertEqual(self.call({"action": "open", "key": "Immich"})[1]["error"], "not_allowed")
+        self.user = "anna"
+        self.assertEqual(self.call({"action": "open", "key": "Immich"})[1]["data"]["url"], "http://nas.local:2283")
+
+    def test_cross_site_and_form_posts_are_refused(self):
+        self.assertEqual(self.call({"action": "state"}, origin="https://evil.example")[0], "Status: 405 Method Not Allowed")
+        self.assertEqual(self.call({"action": "state"}, method="GET")[0], "Status: 405 Method Not Allowed")
+        self.assertEqual(self.call({"action": "state"}, kind="text/plain")[0], "Status: 415 Unsupported Media Type")
+        self.assertEqual(self.call({"action": "state"}, origin="https://nas:5001")[0], "Status: 200 OK")
+
+    def test_regular_users_cannot_send_large_bodies(self):
+        self.user = "anna"
+        status, body = self.call({"action": "open", "key": "Immich", "pad": "x" * 5000})
+        self.assertEqual(status, "Status: 413 Payload Too Large")
+
+    def test_odd_bodies_do_not_crash(self):
+        for body in ([], "x", {"action": "save_app", "app": []}, {"action": "import", "backup": {"format": "cattport-backup", "apps": [1]}}):
+            status, answer = self.call(body)
+            self.assertFalse(answer["success"], body)
+
+
+HOST_HARNESS = r"""
+const fs = require("fs");
+const calls = [];
+const listed = JSON.parse(process.argv[2]);
+global.Ext = { ns: () => {}, define: () => {} };
+global.labs = { morcatt: { cattport: {} } };
+global.SYNO = { SDS: { Session: { SynoToken: "t" }, Config: { FnMap: {} }, AppLaunch: () => {}, reloadJSConfig: () => {} } };
+global.setTimeout = (fn) => fn();
+global.fetch = async (url, options) => {
+  if (url.endsWith("api.cgi")) {
+    calls.push(JSON.parse(options.body));
+    return { json: async () => ({ success: true, data: { ids: [], rules: JSON.parse(process.argv[1]), fingerprint: "f1" } }) };
+  }
+  const form = Object.fromEntries(new URLSearchParams(options.body.toString()));
+  calls.push(form);
+  if (form.method === "list") return { json: async () => ({ success: true, data: { rules: listed } }) };
+  return { json: async () => ({ success: true }) };
+};
+eval(fs.readFileSync(process.argv[3], "utf8"));
+let status = null;
+labs.morcatt.cattport.listen((value) => { status = value; });
+labs.morcatt.cattport.saveToDsm().then(() => console.log(JSON.stringify({ status: status, calls: calls.filter((c) => c.api === "SYNO.Core.AppPriv.Rule"), cattport: calls.filter((c) => c.action) })));
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "needs Node.js")
+class HostTest(unittest.TestCase):
+    """cattport.js writes DSM's Application Privileges after Save to DSM."""
+
+    def run_host(self, rules, listed=()):
+        script = ROOT / "src" / "package" / "ui" / "cattport.js"
+        out = subprocess.run(["node", "-e", HOST_HARNESS, "--", json.dumps(rules), json.dumps(list(listed)), str(script)],
+                             stdout=subprocess.PIPE, check=True).stdout
+        result = json.loads(out)
+        for call in result["calls"]:
+            if "rules" in call:
+                call["rules"] = json.loads(call["rules"])
+        return result
+
+    def test_chosen_people_are_allowed(self):
+        tile = core.TILE_PREFIX + "Immich"
+        result = self.run_host({tile: {"mode": "people", "users": ["anna"], "groups": ["family"]}})
+        self.assertEqual(result["status"], "saved")
+        self.assertEqual(result["cattport"], [{"action": "publish"}, {"action": "rules_applied", "fingerprint": "f1"}])
+        listed, saved = result["calls"]
+        self.assertEqual((listed["method"], json.loads(listed["app_id"])), ("list", tile))
+        self.assertEqual(saved["method"], "set")
+        self.assertEqual(saved["rules"], [
+            {"entity_type": "user", "entity_name": "anna", "app_id": tile, "allow_ip": ["0.0.0.0"], "deny_ip": []},
+            {"entity_type": "group", "entity_name": "family", "app_id": tile, "allow_ip": ["0.0.0.0"], "deny_ip": []}])
+
+    def test_everyone_except_denies_the_exceptions(self):
+        tile = core.TILE_PREFIX + "Immich"
+        rules = self.run_host({tile: {"mode": "everyone", "users": ["bob"], "groups": []}})["calls"][1]["rules"]
+        self.assertIn({"entity_type": "user", "entity_name": "bob", "app_id": tile, "allow_ip": [], "deny_ip": ["0.0.0.0"]}, rules)
+        self.assertIn({"entity_type": "group", "entity_name": "users", "app_id": tile, "allow_ip": ["0.0.0.0"], "deny_ip": []}, rules)
+
+    def test_earlier_choices_are_removed(self):
+        tile = core.TILE_PREFIX + "Immich"
+        old = [{"entity_type": "user", "entity_name": "bob", "app_id": tile, "allow_ip": ["0.0.0.0"], "deny_ip": []},
+               {"entity_type": "user", "entity_name": "anna", "app_id": tile, "allow_ip": ["0.0.0.0"], "deny_ip": []}]
+        calls = self.run_host({tile: {"mode": "people", "users": ["anna"], "groups": []}}, old)["calls"]
+        self.assertEqual([call["method"] for call in calls], ["list", "delete", "set"])
+        self.assertEqual([rule["entity_name"] for rule in calls[1]["rules"]], ["bob"])
+        calls = self.run_host({tile: {"mode": "none", "users": [], "groups": []}}, old)["calls"]
+        self.assertEqual([call["method"] for call in calls], ["list", "delete"])
+        self.assertEqual(len(calls[1]["rules"]), 2)
+
+
 class TextTest(unittest.TestCase):
     def load_texts(self):
         texts = {}
@@ -402,6 +734,17 @@ class TextTest(unittest.TestCase):
         used = set(re.findall(r'data-i18n(?:-placeholder|-label)?="([^"]+)"', (ui / "index.html").read_text(encoding="utf-8")))
         missing = [key for key in used if '"%s"' % key not in source]
         self.assertEqual(missing, [])
+
+    def test_keys_used_in_scripts_exist(self):
+        import re
+        ui = ROOT / "src" / "package" / "ui"
+        english = self.load_texts()["en"]
+        used = set()
+        for name in ("app.js", "open.js"):
+            script = (ui / name).read_text(encoding="utf-8")
+            used |= set(re.findall(r'\bt\("([\w.]+)"', script))
+            used |= set(re.findall(r'"((?:open|people|apps|edit|status|error|diag)\.[\w]+)"', script))
+        self.assertEqual(sorted(key for key in used if key not in english and not key.endswith(".")), [])
 
 
 class PackageTest(unittest.TestCase):
@@ -438,6 +781,22 @@ class PackageTest(unittest.TestCase):
                     self.assertNotIn(b"__VERSION__", data, item.name)
             self.assertIn(build_spk.VERSION.encode(), inner.extractfile("ui/cattport.js").read())
             self.assertEqual(inner.extractfile("lib/version").read().decode(), build_spk.VERSION)
+
+    def test_package_source_lists_the_new_build(self):
+        import build_feed
+        spk = build_spk.build()
+        feed = build_feed.build(spk)
+        catalog = json.loads((feed / "index.json").read_text())
+        self.assertEqual((feed / "index.html").read_text(), (feed / "index.json").read_text())
+        self.assertEqual(list(catalog), ["packages"])
+        (item,) = catalog["packages"]
+        self.assertEqual((item["package"], item["version"]), ("Cattport", build_spk.VERSION))
+        self.assertEqual(item["link"], build_feed.SITE + "packages/" + spk.name)
+        data = (feed / "packages" / spk.name).read_bytes()
+        self.assertEqual((item["size"], item["md5"]), (len(data), __import__("hashlib").md5(data).hexdigest()))
+        for url in item["thumbnail"] + item["snapshot"]:
+            self.assertTrue((feed / url[len(build_feed.SITE):]).exists(), url)
+        self.assertTrue(item["changelog"] and "**" not in item["changelog"])
 
     def test_icon_keeps_dsm_margin(self):
         box = build_spk.draw_icon(256).getbbox()
